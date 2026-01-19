@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f2f2f7" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Claudemail" />
+    <title>Claudemail</title>
+    <link rel="manifest" href="/static/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
+    <link rel="icon" href="/static/icons/icon-192.png" sizes="192x192" type="image/png" />
+    <link rel="stylesheet" href="/static/vendor/xterm/xterm.css" />
+    <link rel="stylesheet" href="/static/app.css?v=20250119-1" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="mail-header">
+        <div class="nav-row nav-default" id="navDefault">
+          <button class="nav-back" type="button" id="mailboxesButton">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M15.5 4.5 7 12l8.5 7.5"
+                stroke="currentColor"
+                stroke-width="2"
+                fill="none"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span>Mailboxes</span>
+          </button>
+          <div class="nav-right">
+            <button class="nav-link" id="selectButton" type="button">Select</button>
+            <button class="icon-button more" id="moreButton" type="button" title="More">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm9 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm9 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z" />
+              </svg>
+              <span class="sr-only">More</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="nav-row nav-select" id="navSelect">
+          <button class="nav-link" id="selectAllButton" type="button">Select All</button>
+          <button class="icon-button ghost" id="cancelSelectButton" type="button" title="Cancel">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="m6.6 6.6 10.8 10.8m0-10.8L6.6 17.4"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+            <span class="sr-only">Cancel</span>
+          </button>
+        </div>
+
+        <div class="title-block">
+          <div class="mail-title">All Inboxes</div>
+          <div class="mail-subtitle" id="mailSubtitle">All Mail &middot; 0 Unread</div>
+        </div>
+
+        <div class="category-row">
+          <div class="category-icons">
+            <button class="icon-chip active" type="button" data-category="primary" aria-pressed="true">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4 0-7 2-7 4v2h14v-2c0-2-3-4-7-4Z" />
+              </svg>
+            </button>
+            <button class="icon-chip" type="button" data-category="transactions" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 6h10l2 4v9a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-9l2-4Zm2 0a3 3 0 0 1 6 0h-2a1 1 0 0 0-2 0H9Z" />
+              </svg>
+            </button>
+            <button class="icon-chip" type="button" data-category="updates" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2Zm7-6V11a7 7 0 0 0-14 0v5l-2 2v1h18v-1l-2-2Z" />
+              </svg>
+            </button>
+            <button class="icon-chip" type="button" data-category="promotions" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 10h4l8-4v12l-8-4H4v-4Zm0 6h4v3H4v-3Z" />
+              </svg>
+            </button>
+          </div>
+          <button class="filter-pill" type="button" id="allMailButton">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2l-8 5-8-5V6Zm0 5 8 5 8-5v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7Z"
+              />
+            </svg>
+            <span>All Mail</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="list-view">
+        <div class="session-list" id="sessionList"></div>
+      </main>
+
+      <div class="footer-meta">
+        <div class="footer-updated" id="statusPill">Updated Just Now</div>
+        <div class="footer-unread" id="unreadCount">0 Unread</div>
+      </div>
+
+      <footer class="mail-footer">
+        <button class="toolbar-button" id="filterButton" type="button" title="Filters">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M3 6h12M3 12h18M3 18h9"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+        <label class="search-pill">
+          <span class="search-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M15.5 14h-.8l-.3-.3a6 6 0 1 0-.9.9l.3.3v.8L20 20.5 20.5 20l-5-6ZM10 15a5 5 0 1 1 0-10 5 5 0 0 1 0 10Z"
+              />
+            </svg>
+          </span>
+          <input id="searchInput" type="search" placeholder="Search" />
+        </label>
+        <button class="compose-button" id="newSession" type="button" title="Compose">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 20h4l10.6-10.6-4-4L4 16v4Zm15.7-11.3a1 1 0 0 0 0-1.4l-3-3a1 1 0 0 0-1.4 0l-1.3 1.3 4 4 1.7-1Z" />
+          </svg>
+          <span class="sr-only">Compose</span>
+        </button>
+      </footer>
+
+      <footer class="selection-footer" id="selectionFooter">
+        <button class="toolbar-button" id="markButton" type="button" title="Mark">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 4h14v16l-7-4-7 4V4Z" />
+          </svg>
+        </button>
+        <button class="toolbar-button" id="moveButton" type="button" title="Move">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 6a2 2 0 0 1 2-2h6l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z" />
+          </svg>
+        </button>
+        <button class="toolbar-button danger" id="trashButton" type="button" title="Trash">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 7h10v10H7V7Zm2-3h6l1 2H8l1-2Z" />
+          </svg>
+        </button>
+      </footer>
+
+      <div class="home-indicator"></div>
+    </div>
+
+    <section class="message-pane" id="messagePane" aria-hidden="true">
+      <header class="detail-nav">
+        <button class="nav-back detail-back" id="backButton" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M15.5 4.5 7 12l8.5 7.5"
+              stroke="currentColor"
+              stroke-width="2"
+              fill="none"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <span>All Inboxes</span>
+        </button>
+        <div class="detail-title" id="detailTitle">0 Messages</div>
+        <div class="detail-actions">
+          <button class="icon-button ghost" id="refreshSessions" type="button" title="Refresh">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 11a6 6 0 1 1 1.7 4.2l1.4-1.4A4 4 0 1 0 8 12h2a6 6 0 0 1-4 5.2V15H4v-4h4l-2 2Z" />
+            </svg>
+            <span class="sr-only">Refresh</span>
+          </button>
+          <button class="icon-button ghost" id="stopSession" type="button" title="End Session">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 7h10v10H7V7Zm2-3h6l1 2H8l1-2Z" />
+            </svg>
+            <span class="sr-only">End Session</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="message-header">
+        <div class="message-title-row">
+          <div class="message-title" id="messageTitle">No Message Selected</div>
+          <button class="message-action" id="summarizeButton" type="button">Summarize</button>
+        </div>
+        <div class="message-subtitle" id="messageSubtitle">
+          Select a session to control Claude Code.
+        </div>
+        <div class="message-subject" id="messageSubject"></div>
+      </div>
+
+      <div class="message-thread" id="messageThread">
+        <div class="thread-card terminal-card" id="terminalCard" aria-hidden="true">
+          <div class="thread-header">
+            <div class="thread-avatar">
+              <img src="/static/icons/claude-color.png" alt="Claude" />
+            </div>
+            <div class="thread-meta">
+              <div class="thread-from-row">
+                <div class="thread-from">Claude Code</div>
+                <div class="thread-time" id="terminalTime"></div>
+              </div>
+              <div class="thread-to">Interactive session</div>
+            </div>
+          </div>
+          <div class="terminal-body">
+            <div id="terminalMount" aria-label="Terminal session"></div>
+          </div>
+        </div>
+        <div class="empty-state" id="emptyState">
+          <div class="empty-title">No Mail</div>
+          <div class="empty-copy">Create a new session to start.</div>
+        </div>
+      </div>
+
+      <form class="composer" id="composer">
+        <div class="composer-inner">
+          <textarea id="composerInput" placeholder="Reply" rows="2"></textarea>
+          <button class="send-button" type="submit" title="Send">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 20 22 12 3 4l2.5 6L17 12 5.5 14 3 20Z" />
+            </svg>
+            <span class="sr-only">Send</span>
+          </button>
+        </div>
+        <div class="composer-hint">Enter to send, Shift+Enter for line breaks.</div>
+      </form>
+    </section>
+
+    <div class="menu-backdrop" id="menuBackdrop"></div>
+    <aside class="menu-popover" id="moreMenu" aria-hidden="true">
+      <div class="menu-toggle-group">
+        <button class="menu-toggle" id="menuCategories" type="button">
+          <span class="menu-toggle-icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z" />
+            </svg>
+          </span>
+          <span class="menu-toggle-label">Categories</span>
+          <span class="menu-toggle-check"></span>
+        </button>
+        <button class="menu-toggle" id="menuList" type="button">
+          <span class="menu-toggle-icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6h14M6 12h14M6 18h14M4 6h0M4 12h0M4 18h0" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </span>
+          <span class="menu-toggle-label">List View</span>
+          <span class="menu-toggle-check"></span>
+        </button>
+      </div>
+      <button class="menu-row" type="button" id="menuAbout">About Categories</button>
+      <button class="menu-row" type="button" id="menuPriority">Show Priority</button>
+      <button class="menu-row menu-toggle-row" type="button" id="menuContactPhotos">
+        <span>Show Contact Photos</span>
+        <span class="menu-check"></span>
+      </button>
+      <button class="menu-row" type="button" id="menuSelect">Select</button>
+      <button class="menu-row" type="button" id="menuSettings">Session Settings</button>
+    </aside>
+
+    <div class="settings-backdrop" id="settingsBackdrop"></div>
+    <aside class="settings-panel" id="settingsPanel" aria-hidden="true">
+      <div class="settings-header">
+        <div>
+          <div class="settings-title">Session Settings</div>
+          <div class="settings-subtitle">Configure the local Claude Code session.</div>
+        </div>
+        <button class="icon-button ghost" id="settingsClose" type="button" title="Close settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="m6.6 6.6 10.8 10.8m0-10.8L6.6 17.4"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+      <form class="settings-form" id="settingsForm">
+        <label class="settings-label" for="workdirInput">Working directory</label>
+        <div class="settings-input-row">
+          <input
+            class="settings-input"
+            id="workdirInput"
+            type="text"
+            placeholder="/srv/fast/code/project"
+          />
+          <button class="ghost-button settings-inline-button" id="workdirBrowse" type="button">Browse</button>
+        </div>
+
+        <label class="settings-label" for="themeInput">Appearance</label>
+        <select class="settings-input" id="themeInput">
+          <option value="system" selected>System</option>
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+        <div class="settings-help">Choose dark mode or follow your system setting.</div>
+
+        <label class="settings-label" for="userInitialInput">Your initial</label>
+        <input
+          class="settings-input"
+          id="userInitialInput"
+          type="text"
+          placeholder="C"
+        />
+        <div class="settings-help">Shown as your avatar in the thread view.</div>
+
+        <label class="settings-label" for="terminalModeInput">Session mode</label>
+        <label class="settings-toggle">
+          <input type="checkbox" id="terminalModeInput" />
+          <span class="settings-toggle-pill"></span>
+          <span class="settings-toggle-text">Interactive terminal (xterm)</span>
+        </label>
+        <div class="settings-help">Required for in-session permission prompts.</div>
+
+        <label class="settings-label" for="permissionModeInput">Permission mode</label>
+        <select class="settings-input" id="permissionModeInput">
+          <option value="">Use server default</option>
+          <option value="default">Default</option>
+          <option value="acceptEdits" selected>Accept Edits</option>
+          <option value="dontAsk">Don't Ask</option>
+          <option value="bypassPermissions">Bypass Permissions</option>
+          <option value="delegate">Delegate</option>
+          <option value="plan">Plan</option>
+        </select>
+        <div class="settings-help">Controls how Claude Code handles permission prompts for this session.</div>
+
+        <label class="settings-label" for="promptInput">Auto-send prompt (optional)</label>
+        <textarea
+          class="settings-textarea"
+          id="promptInput"
+          rows="3"
+          placeholder="Kick off the session with a prompt"
+        ></textarea>
+
+        <label class="settings-label" for="accessTokenInput">Access token (optional)</label>
+        <input
+          class="settings-input"
+          id="accessTokenInput"
+          type="password"
+          autocomplete="off"
+          placeholder="Set to require a token for API access"
+        />
+        <div class="settings-help">Only used if the server requires `CLAUDEMAIL_API_TOKEN`.</div>
+
+        <div class="settings-actions">
+          <button class="ghost-button" id="settingsCancel" type="button">Cancel</button>
+          <button class="ghost-button" id="settingsSave" type="submit">Save</button>
+          <button class="primary-button" id="settingsStart" type="button">Save + New Session</button>
+        </div>
+      </form>
+    </aside>
+
+    <div class="folder-picker-backdrop" id="folderPickerBackdrop"></div>
+    <aside class="folder-picker" id="folderPicker" aria-hidden="true">
+      <div class="folder-picker-header">
+        <div>
+          <div class="folder-picker-title">Choose Folder</div>
+          <div class="folder-picker-subtitle" id="folderPickerSubtitle"></div>
+        </div>
+        <button class="icon-button ghost" id="folderPickerClose" type="button" title="Close picker">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="m6.6 6.6 10.8 10.8m0-10.8L6.6 17.4"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+      <div class="folder-picker-nav">
+        <button class="ghost-button settings-inline-button" id="folderPickerUp" type="button">Up</button>
+        <div class="folder-picker-path" id="folderPickerPath"></div>
+      </div>
+      <div class="folder-picker-list" id="folderPickerList"></div>
+      <div class="folder-picker-status" id="folderPickerStatus"></div>
+      <div class="folder-picker-actions">
+        <button class="ghost-button" id="folderPickerNew" type="button">New Folder</button>
+        <button class="primary-button" id="folderPickerUse" type="button">Use This Folder</button>
+      </div>
+    </aside>
+    <script src="/static/vendor/xterm/xterm.js"></script>
+    <script src="/static/vendor/xterm/addon-fit.js"></script>
+    <script src="/static/app.js?v=20250119-1"></script>
+  </body>
+</html>
