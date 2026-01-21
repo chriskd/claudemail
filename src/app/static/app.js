@@ -93,6 +93,60 @@ const defaultUi = {
   listView: true,
 };
 
+const TITLE_ADJECTIVES = [
+  "Amber",
+  "Brave",
+  "Bright",
+  "Calm",
+  "Clever",
+  "Crimson",
+  "Dapper",
+  "Daring",
+  "Dusky",
+  "Golden",
+  "Icy",
+  "Jolly",
+  "Lucky",
+  "Misty",
+  "Noble",
+  "Quiet",
+  "Rapid",
+  "Sandy",
+  "Silent",
+  "Silver",
+  "Solar",
+  "Swift",
+  "Velvet",
+  "Wild",
+];
+
+const TITLE_ANIMALS = [
+  "Badger",
+  "Bear",
+  "Cat",
+  "Coyote",
+  "Crane",
+  "Deer",
+  "Falcon",
+  "Fox",
+  "Heron",
+  "Hound",
+  "Lynx",
+  "Moose",
+  "Owl",
+  "Otter",
+  "Panda",
+  "Rabbit",
+  "Seal",
+  "Shark",
+  "Tiger",
+  "Turtle",
+  "Wolf",
+  "Wren",
+  "Yak",
+  "Zebra",
+];
+
 const state = {
   sessions: [],
   activeSessionId: null,
@@ -127,6 +181,7 @@ const terminalState = {
 };
 
 function setStatus(text, offline = false) {
+  if (!statusPill) return;
   const status = (text || "").toLowerCase();
   let label = "Updated Just Now";
   if (status === "closed" || status === "offline") {
@@ -618,20 +673,174 @@ function normalizePreview(text) {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function splitPreview(text) {
-  const cleaned = normalizePreview(text);
-  if (!cleaned) {
-    return { subject: "Claude Code", snippet: "No activity yet." };
-  }
-  if (cleaned.length <= 52) {
-    return { subject: cleaned, snippet: "" };
-  }
-  const cutoff = cleaned.lastIndexOf(" ", 52);
-  const splitAt = cutoff > 24 ? cutoff : 52;
-  return {
-    subject: cleaned.slice(0, splitAt),
-    snippet: cleaned.slice(splitAt).trim().slice(0, 80),
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function parseInline(text) {
+  if (!text) return "";
+  const segments = text.split("`");
+  return segments
+    .map((segment, index) => {
+      if (index % 2 === 1) {
+        return `<code>${segment}</code>`;
+      }
+      let output = segment;
+      output = output.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+      output = output.replace(/(^|[^*])\*(?!\s)(.+?)(?!\s)\*/g, "$1<em>$2</em>");
+      return output;
+    })
+    .join("");
+}
+
+function renderMarkdown(text) {
+  if (!text) return "";
+  const lines = escapeHtml(text).replace(/\r\n?/g, "\n").split("\n");
+  const output = [];
+  let paragraph = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    const content = paragraph.join("<br>");
+    output.push(`<p>${parseInline(content)}</p>`);
+    paragraph = [];
   };
+
+  const isTableSeparator = (value) =>
+    /^\s*\|?\s*[-:]+(\s*\|\s*[-:]+)+\s*\|?\s*$/.test(value);
+
+  const splitTableRow = (value) => {
+    const trimmed = value.trim().replace(/^\|/, "").replace(/\|$/, "");
+    return trimmed.split("|").map((cell) => cell.trim());
+  };
+
+  while (lines.length) {
+    const line = lines.shift();
+    if (line === undefined) break;
+    if (!line.trim()) {
+      flushParagraph();
+      continue;
+    }
+
+    if (line.startsWith("```")) {
+      flushParagraph();
+      const language = line.slice(3).trim();
+      const codeLines = [];
+      while (lines.length) {
+        const next = lines.shift();
+        if (next === undefined) break;
+        if (next.startsWith("```")) break;
+        codeLines.push(next);
+      }
+      const code = codeLines.join("\n");
+      const className = language ? ` class="language-${language}"` : "";
+      output.push(`<pre><code${className}>${code}</code></pre>`);
+      continue;
+    }
+
+    if (line.includes("|") && lines.length && isTableSeparator(lines[0])) {
+      flushParagraph();
+      const header = splitTableRow(line);
+      lines.shift();
+      const rows = [];
+      while (lines.length) {
+        const next = lines[0];
+        if (!next || !next.includes("|")) break;
+        rows.push(splitTableRow(lines.shift()));
+      }
+      const headerHtml = header.map((cell) => `<th>${parseInline(cell)}</th>`).join("");
+      const rowsHtml = rows
+        .map(
+          (row) =>
+            `<tr>${row.map((cell) => `<td>${parseInline(cell)}</td>`).join("")}</tr>`
+        )
+        .join("");
+      output.push(`<table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>`);
+      continue;
+    }
+
+    const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      flushParagraph();
+      const level = headingMatch[1].length;
+      output.push(`<h${level}>${parseInline(headingMatch[2])}</h${level}>`);
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)) {
+      flushParagraph();
+      const quoteLines = [line.replace(/^\s*>\s?/, "")];
+      while (lines.length && /^\s*>\s?/.test(lines[0])) {
+        quoteLines.push(lines.shift().replace(/^\s*>\s?/, ""));
+      }
+      output.push(`<blockquote>${parseInline(quoteLines.join("<br>"))}</blockquote>`);
+      continue;
+    }
+
+    if (/^\s*[-*+]\s+/.test(line)) {
+      flushParagraph();
+      const items = [line.replace(/^\s*[-*+]\s+/, "")];
+      while (lines.length && /^\s*[-*+]\s+/.test(lines[0])) {
+        items.push(lines.shift().replace(/^\s*[-*+]\s+/, ""));
+      }
+      output.push(`<ul>${items.map((item) => `<li>${parseInline(item)}</li>`).join("")}</ul>`);
+      continue;
+    }
+
+    if (/^\s*\d+\.\s+/.test(line)) {
+      flushParagraph();
+      const items = [line.replace(/^\s*\d+\.\s+/, "")];
+      while (lines.length && /^\s*\d+\.\s+/.test(lines[0])) {
+        items.push(lines.shift().replace(/^\s*\d+\.\s+/, ""));
+      }
+      output.push(`<ol>${items.map((item) => `<li>${parseInline(item)}</li>`).join("")}</ol>`);
+      continue;
+    }
+
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  return output.join("");
+}
+
+function renderMessageContent(message) {
+  const content = message?.content || "";
+  if (message?.role === "tool") {
+    return `<pre><code>${escapeHtml(content)}</code></pre>`;
+  }
+  return renderMarkdown(content);
+}
+
+function hashSeed(text) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function autoTitleFor(session) {
+  const seed = session?.id || session?.title || "claude";
+  const hash = hashSeed(seed);
+  const adjective = TITLE_ADJECTIVES[hash % TITLE_ADJECTIVES.length];
+  const animal =
+    TITLE_ANIMALS[Math.floor(hash / TITLE_ADJECTIVES.length) % TITLE_ANIMALS.length];
+  return `${adjective} ${animal}`;
+}
+
+function firstUserMessageFrom(messages) {
+  if (!Array.isArray(messages)) return "";
+  for (const message of messages) {
+    if (message?.role !== "user") continue;
+    const content = (message?.content || "").trim();
+    if (content) return content;
+  }
+  return "";
 }
 
 function avatarColorFor(text) {
@@ -658,7 +867,7 @@ function updateUnreadCount() {
   unreadCount.textContent = unreadLabel;
   if (mailSubtitle) {
     if (state.selectionMode) {
-      mailSubtitle.textContent = statusPill?.textContent || "Updated Just Now";
+      mailSubtitle.textContent = "Select Messages";
     } else if (state.ui.listView) {
       mailSubtitle.textContent = unreadLabel;
     } else {
@@ -791,7 +1000,7 @@ function buildMessageElement(message) {
 
   const body = document.createElement("div");
   body.className = "thread-body";
-  body.textContent = message.content;
+  body.innerHTML = renderMessageContent(message);
 
   header.appendChild(avatar);
   header.appendChild(meta);
@@ -812,7 +1021,7 @@ function upsertMessage(message) {
   } else {
     const body = element.querySelector(".thread-body");
     const time = element.querySelector(".thread-time");
-    if (body) body.textContent = message.content;
+    if (body) body.innerHTML = renderMessageContent(message);
     if (time) time.textContent = formatThreadTime(message.timestamp);
   }
   updateEmptyState(state.messageMap.size > 0);
@@ -854,7 +1063,9 @@ function getFilteredSessions() {
   const filter = state.filter.toLowerCase();
   const filtered = state.sessions.filter(
     (session) =>
-      session.title.toLowerCase().includes(filter) ||
+      autoTitleFor(session).toLowerCase().includes(filter) ||
+      (session.title || "").toLowerCase().includes(filter) ||
+      (session.first_user_message || "").toLowerCase().includes(filter) ||
       (session.preview || "").toLowerCase().includes(filter)
   );
   if (!state.filterUnread) return filtered;
@@ -982,7 +1193,7 @@ function renderSessionList() {
 
     const title = document.createElement("div");
     title.className = "session-title";
-    const titleText = session.title || "Claude Code";
+    const titleText = autoTitleFor(session);
     title.textContent = titleText;
 
     const meta = document.createElement("div");
@@ -1002,16 +1213,16 @@ function renderSessionList() {
     row.appendChild(title);
     row.appendChild(meta);
 
-    const { subject, snippet } = splitPreview(session.preview);
-
     const subjectEl = document.createElement("div");
     subjectEl.className = "session-subject";
-    subjectEl.textContent = subject;
+    const subjectText = normalizePreview(session.title || "Claude Code");
+    subjectEl.textContent = subjectText;
 
     const snippetEl = document.createElement("div");
     snippetEl.className = "session-snippet";
+    const snippetText = normalizePreview(session.first_user_message || "");
     snippetEl.textContent =
-      snippet || (session.status === "closed" ? "Session closed." : "Tap to open.");
+      snippetText || (session.status === "closed" ? "Session closed." : "Tap to open.");
 
     content.appendChild(row);
     content.appendChild(subjectEl);
@@ -1206,6 +1417,9 @@ function updateSessionPreview(message) {
   const session = state.sessions.find((item) => item.id === state.activeSessionId);
   if (!session) return;
   session.preview = message.content;
+  if (message.role === "user" && !session.first_user_message) {
+    session.first_user_message = message.content;
+  }
   session.last_updated = message.timestamp;
   session.last_role = message.role;
   if (message.role === "claude" && session.id !== state.activeSessionId) {
@@ -1225,35 +1439,49 @@ function ensureSession() {
 }
 
 function applySessionDetail(detail) {
+  const normalizedDetail = {
+    ...detail,
+    first_user_message: detail.first_user_message || firstUserMessageFrom(detail.messages),
+  };
   const existingIndex = state.sessions.findIndex(
-    (item) => item.id === detail.id && !item.is_history
+    (item) => item.id === normalizedDetail.id && !item.is_history
   );
   if (existingIndex >= 0) {
-    state.sessions[existingIndex] = { ...state.sessions[existingIndex], ...detail };
+    state.sessions[existingIndex] = {
+      ...state.sessions[existingIndex],
+      ...normalizedDetail,
+    };
     state.sessions[existingIndex].unread = false;
     state.sessions[existingIndex].is_history = false;
   } else {
-    state.sessions.unshift({ ...detail, unread: false, last_role: null, is_history: false });
+    state.sessions.unshift({
+      ...normalizedDetail,
+      unread: false,
+      last_role: null,
+      is_history: false,
+    });
   }
-  state.sessions = state.sessions.filter((item) => !(item.is_history && item.id === detail.id));
-  state.activeSessionId = detail.id;
-  state.activeSessionMode = detail.mode || "stream";
-  state.activeSession = detail;
-  setStatus(detail.status || "running", detail.status === "closed");
-  updateHeader(detail);
+  state.sessions = state.sessions.filter(
+    (item) => !(item.is_history && item.id === normalizedDetail.id)
+  );
+  state.activeSessionId = normalizedDetail.id;
+  state.activeSessionMode = normalizedDetail.mode || "stream";
+  state.activeSession = normalizedDetail;
+  setStatus(normalizedDetail.status || "running", normalizedDetail.status === "closed");
+  updateHeader(normalizedDetail);
   composerInput.placeholder = isTerminalMode() ? "Send to terminal" : "Reply";
   if (isTerminalMode()) {
-    updateTerminalTime(detail.last_updated || detail.created_at);
+    updateTerminalTime(normalizedDetail.last_updated || normalizedDetail.created_at);
   }
-  renderMessages(detail.messages || []);
+  renderMessages(normalizedDetail.messages || []);
   renderSessionList();
   showMessagePane();
   if (isTerminalMode()) {
     closeSocket();
-    openTerminalSocket(detail.id);
+    openTerminalSocket(normalizedDetail.id);
   } else {
     closeTerminalSocket();
-    openSocket(detail.id);
+    openSocket(normalizedDetail.id);
   }
 }
 

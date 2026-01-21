@@ -297,6 +297,7 @@ svg {
   flex-direction: column;
   min-height: 0;
   background: var(--ios-panel);
+  overflow-x: hidden;
 }
 
 .session-list {
@@ -304,6 +305,7 @@ svg {
   flex-direction: column;
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   min-height: 0;
   padding-bottom: 12px;
@@ -414,6 +416,7 @@ svg {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
 }
 
 .session-title {
@@ -421,6 +424,8 @@ svg {
   font-weight: 600;
   color: var(--ios-text);
   letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -444,6 +449,7 @@ svg {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .session-chevron {
@@ -464,6 +470,9 @@ svg {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
   overflow: hidden;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .session-snippet {
@@ -473,6 +482,9 @@ svg {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
   overflow: hidden;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .footer-meta {
@@ -705,18 +717,24 @@ svg {
   font-size: 1.2rem;
   font-weight: 700;
   letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message-subtitle {
   font-size: 0.82rem;
   color: var(--ios-muted);
   margin-top: 4px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message-subject {
   font-size: 0.78rem;
   color: var(--ios-muted);
   margin-top: 2px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 
@@ -837,6 +855,95 @@ svg {
   line-height: 1.5;
   color: var(--thread-body);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.thread-body p {
+  margin: 6px 0;
+}
+
+.thread-body h1,
+.thread-body h2,
+.thread-body h3,
+.thread-body h4,
+.thread-body h5,
+.thread-body h6 {
+  margin: 10px 0 6px;
+  font-weight: 700;
+}
+
+.thread-body h1 {
+  font-size: 1.1rem;
+}
+
+.thread-body h2 {
+  font-size: 1.02rem;
+}
+
+.thread-body h3 {
+  font-size: 0.98rem;
+}
+
+.thread-body ul,
+.thread-body ol {
+  margin: 6px 0;
+  padding-left: 22px;
+}
+
+.thread-body li {
+  margin: 4px 0;
+}
+
+.thread-body blockquote {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--ios-separator);
+  color: var(--ios-muted);
+}
+
+.thread-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  background: rgba(60, 60, 67, 0.12);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.thread-body pre {
+  background: rgba(60, 60, 67, 0.12);
+  padding: 10px 12px;
+  border-radius: 10px;
+  overflow-x: auto;
+  margin: 10px 0;
+  white-space: pre;
+}
+
+.thread-body pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.88rem;
+}
+
+.thread-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 0.88rem;
+  display: block;
+  overflow-x: auto;
+}
+
+.thread-body thead {
+  background: var(--ios-pill);
+}
+
+.thread-body th,
+.thread-body td {
+  border: 1px solid var(--ios-separator);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
 }
 
 .empty-state {

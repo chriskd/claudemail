@@ -112,6 +112,29 @@ def extract_message_text(message: dict[str, object]) -> str:
     return ""
 
 
+def is_command_meta_text(text: str) -> bool:
+    trimmed = text.lstrip().lower()
+    if not trimmed:
+        return False
+    markers = (
+        "<command-name>",
+        "<command-message>",
+        "<command-args>",
+        "<local-command-stdout>",
+        "<local-command-stderr>",
+        "<local-command-stdin>",
+    )
+    return any(marker in trimmed for marker in markers)
+
+
+def should_skip_history_payload(payload: dict[str, object], text: str) -> bool:
+    if payload.get("isMeta") is True:
+        return True
+    if is_command_meta_text(text):
+        return True
+    return False
+
+
 def resolve_history_session_path(
     project_dir: Path,
     entry: dict[str, object],
@@ -149,6 +172,8 @@ def read_session_preview(session_path: Path) -> tuple[str, Optional[str]]:
                 text = extract_message_text(message).strip()
                 if not text:
                     continue
+                if should_skip_history_payload(payload, text):
+                    continue
                 last_text = text
                 timestamp = payload.get("timestamp")
                 if isinstance(timestamp, str):
@@ -156,6 +181,139 @@ def read_session_preview(session_path: Path) -> tuple[str, Optional[str]]:
     except OSError:
         return "", None
     return last_text, last_timestamp
+
+
+def read_session_metadata(session_path: Path) -> Optional[dict[str, object]]:
+    session_id: Optional[str] = None
+    project_path: Optional[str] = None
+    is_sidechain: Optional[bool] = None
+    slug: Optional[str] = None
+    summary: Optional[str] = None
+    created: Optional[str] = None
+    modified: Optional[str] = None
+    try:
+        with session_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if summary is None and payload.get("type") == "summary":
+                    candidate = payload.get("summary")
+                    if isinstance(candidate, str) and candidate.strip():
+                        summary = candidate.strip()
+                if session_id is None:
+                    candidate = payload.get("sessionId")
+                    if isinstance(candidate, str) and candidate.strip():
+                        session_id = candidate.strip()
+                if project_path is None:
+                    candidate = payload.get("projectPath")
+                    if isinstance(candidate, str) and candidate.strip():
+                        project_path = candidate.strip()
+                    else:
+                        candidate = payload.get("cwd")
+                        if isinstance(candidate, str) and candidate.strip():
+                            project_path = candidate.strip()
+                if is_sidechain is None and isinstance(payload.get("isSidechain"), bool):
+                    is_sidechain = payload.get("isSidechain")
+                if slug is None:
+                    candidate = payload.get("slug")
+                    if isinstance(candidate, str) and candidate.strip():
+                        slug = candidate.strip()
+                timestamp = payload.get("timestamp")
+                if isinstance(timestamp, str) and timestamp.strip():
+                    if created is None:
+                        created = timestamp
+                    modified = timestamp
+    except OSError:
+        return None
+    if not session_id:
+        return None
+    file_mtime = None
+    try:
+        file_mtime = int(session_path.stat().st_mtime * 1000)
+    except OSError:
+        file_mtime = None
+    entry: dict[str, object] = {
+        "sessionId": session_id,
+        "fullPath": str(session_path),
+        "isSidechain": bool(is_sidechain) if is_sidechain is not None else False,
+        "summary": summary,
+        "slug": slug,
+        "created": created,
+        "modified": modified,
+    }
+    if project_path:
+        entry["projectPath"] = project_path
+    if file_mtime is not None:
+        entry["fileMtime"] = file_mtime
+    return entry
+
+
+def build_history_entries_from_jsonl(project_dir: Path) -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    if not project_dir.exists():
+        return entries
+    for session_path in project_dir.glob("*.jsonl"):
+        if not session_path.is_file():
+            continue
+        entry = read_session_metadata(session_path)
+        if not entry:
+            continue
+        entries.append(entry)
+    return entries
+
+
+def read_session_first_user_message(session_path: Path) -> str:
+    try:
+        with session_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if payload.get("type") != "user":
+                    continue
+                message = payload.get("message")
+                if not isinstance(message, dict):
+                    continue
+                text = extract_message_text(message).strip()
+                if text and not should_skip_history_payload(payload, text):
+                    return text
+    except OSError:
+        return ""
+    return ""
+
+
+def normalize_slug_title(value: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        return ""
+    if " " not in cleaned and "-" in cleaned:
+        cleaned = " ".join(part.capitalize() for part in cleaned.split("-") if part)
+    return cleaned
+
+
+def select_history_title(entry: dict[str, object]) -> str:
+    summary = entry.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        return summary.strip()
+    slug = entry.get("slug")
+    if isinstance(slug, str) and slug.strip():
+        return normalize_slug_title(slug)
+    title = entry.get("title")
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    first_prompt = entry.get("firstPrompt")
+    if isinstance(first_prompt, str) and first_prompt.strip():
+        return first_prompt.strip()
+    return ""
 
 
 def load_session_messages(session_path: Path, max_messages: int) -> list[dict[str, str]]:
@@ -178,6 +336,8 @@ def load_session_messages(session_path: Path, max_messages: int) -> list[dict[st
                     continue
                 text = extract_message_text(message).strip()
                 if not text:
+                    continue
+                if should_skip_history_payload(payload, text):
                     continue
                 message_id = payload.get("uuid")
                 if not isinstance(message_id, str):
@@ -772,12 +932,21 @@ class Session:
         preview = ""
         if self.messages:
             preview = self.messages[-1]["content"].strip().splitlines()[0][:140]
+        first_user = ""
+        for message in self.messages:
+            if message.get("role") != "user":
+                continue
+            content = message.get("content", "").strip()
+            if content:
+                first_user = content
+                break
         return {
             "id": self.id,
             "title": self.title,
             "created_at": self.created_at,
             "last_updated": self.last_updated,
             "preview": preview,
+            "first_user_message": first_user,
             "status": self.status,
             "mode": self.mode,
         }
@@ -883,6 +1052,7 @@ class TerminalSession:
             "created_at": self.created_at,
             "last_updated": self.last_updated,
             "preview": "Interactive session",
+            "first_user_message": "",
             "status": self.status,
             "mode": self.mode,
         }
@@ -1075,6 +1245,8 @@ async def list_history(workdir: Optional[str] = None) -> list[dict[str, object]]
     if not project_dir.exists():
         return []
     entries = parse_sessions_index(project_dir)
+    if not entries:
+        entries = build_history_entries_from_jsonl(project_dir)
     project_path = str(resolved)
     history: list[dict[str, str]] = []
     for entry in entries:
@@ -1090,9 +1262,9 @@ async def list_history(workdir: Optional[str] = None) -> list[dict[str, object]]
         session_path = resolve_history_session_path(project_dir, entry, session_id)
         if not session_path:
             continue
-        title = entry.get("firstPrompt") if isinstance(entry.get("firstPrompt"), str) else ""
-        title = title.strip() or "Claude Code"
+        title = select_history_title(entry) or "Claude Code"
         preview, preview_timestamp = read_session_preview(session_path)
+        first_user_message = read_session_first_user_message(session_path)
         preview_line = preview.strip().splitlines()[0][:140] if preview else ""
         created = entry.get("created") if isinstance(entry.get("created"), str) else None
         modified = entry.get("modified") if isinstance(entry.get("modified"), str) else None
@@ -1105,6 +1277,7 @@ async def list_history(workdir: Optional[str] = None) -> list[dict[str, object]]
                 "id": session_id,
                 "title": title,
                 "preview": preview_line,
+                "first_user_message": first_user_message,
                 "created_at": created_at,
                 "last_updated": last_updated,
                 "status": "closed",
@@ -1148,6 +1321,8 @@ async def resume_session(request: ResumeSessionRequest) -> dict[str, object]:
     resolved = resolve_workdir(request.workdir)
     project_dir = project_dir_for_path(resolved)
     entries = parse_sessions_index(project_dir)
+    if not entries:
+        entries = build_history_entries_from_jsonl(project_dir)
     entry = next(
         (item for item in entries if isinstance(item, dict) and item.get("sessionId") == session_id),
         None,
@@ -1158,7 +1333,7 @@ async def resume_session(request: ResumeSessionRequest) -> dict[str, object]:
     if not session_path:
         raise HTTPException(status_code=404, detail="Session not found")
     messages = load_session_messages(session_path, MAX_HISTORY_MESSAGES)
-    title = entry.get("firstPrompt") if isinstance(entry.get("firstPrompt"), str) else ""
+    title = select_history_title(entry)
     if not title and messages:
         title = messages[0]["content"].splitlines()[0]
     created = entry.get("created") if isinstance(entry.get("created"), str) else None
