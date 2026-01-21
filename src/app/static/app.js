@@ -267,6 +267,13 @@ function applySettingsState(next) {
     renderMessages(state.activeMessages);
   }
   if (state.settings.workdir !== previousWorkdir) {
+    if (state.activeSession && !matchesWorkdir(state.activeSession, state.settings.workdir)) {
+      clearActiveSession();
+      hideMessagePane();
+    }
+    state.sessions = state.sessions.filter((session) => !session.is_history);
+    renderSessionList();
+    fetchSessions();
     fetchHistorySessions(state.settings.workdir);
   }
   return state.settings;
@@ -673,6 +680,18 @@ function normalizePreview(text) {
   return text.replace(/\s+/g, " ").trim();
 }
 
+function normalizeWorkdir(value) {
+  return (value || "").trim().replace(/\/+$/, "");
+}
+
+function matchesWorkdir(session, workdir) {
+  const scoped = normalizeWorkdir(workdir);
+  if (!scoped) return true;
+  const sessionWorkdir = normalizeWorkdir(session?.workdir);
+  if (!sessionWorkdir) return false;
+  return sessionWorkdir === scoped;
+}
+
 function escapeHtml(text) {
   return text
     .replace(/&/g, "&amp;")
@@ -1061,7 +1080,10 @@ function sortSessions(sessions) {
 
 function getFilteredSessions() {
   const filter = state.filter.toLowerCase();
-  const filtered = state.sessions.filter(
+  const scoped = state.sessions.filter((session) =>
+    matchesWorkdir(session, state.settings.workdir)
+  );
+  const filtered = scoped.filter(
     (session) =>
       autoTitleFor(session).toLowerCase().includes(filter) ||
       (session.title || "").toLowerCase().includes(filter) ||
@@ -1284,7 +1306,7 @@ async function fetchSessions() {
   renderSessionList();
 }
 
-function mergeHistorySessions(historySessions) {
+function mergeHistorySessions(historySessions, workdir) {
   const activeSessions = state.sessions.filter((session) => !session.is_history);
   const activeIds = new Set(activeSessions.map((session) => session.id));
   const normalizedHistory = historySessions.map((session) => ({
@@ -1292,6 +1314,7 @@ function mergeHistorySessions(historySessions) {
     is_history: true,
     unread: false,
     last_role: null,
+    workdir: session.workdir || workdir || "",
   }));
   state.sessions = sortSessions([
     ...activeSessions,
@@ -1310,7 +1333,7 @@ async function fetchHistorySessions(workdirOverride) {
   const response = await apiFetch(url);
   if (!response.ok) return;
   const historySessions = await response.json();
-  mergeHistorySessions(historySessions);
+  mergeHistorySessions(historySessions, workdir);
 }
 
 async function fetchSessionDetail(sessionId) {

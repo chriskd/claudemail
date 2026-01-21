@@ -556,6 +556,7 @@ class Session:
     stdin: TextIO
     stdout: TextIO
     loop: asyncio.AbstractEventLoop
+    workdir: Optional[str] = None
     created_at: str = field(default_factory=now_iso)
     last_updated: str = field(default_factory=now_iso)
     status: str = "running"
@@ -947,6 +948,7 @@ class Session:
             "last_updated": self.last_updated,
             "preview": preview,
             "first_user_message": first_user,
+            "workdir": self.workdir or "",
             "status": self.status,
             "mode": self.mode,
         }
@@ -962,6 +964,7 @@ class TerminalSession:
     process: subprocess.Popen[bytes]
     master_fd: int
     loop: asyncio.AbstractEventLoop
+    workdir: Optional[str] = None
     created_at: str = field(default_factory=now_iso)
     last_updated: str = field(default_factory=now_iso)
     status: str = "running"
@@ -1053,6 +1056,7 @@ class TerminalSession:
             "last_updated": self.last_updated,
             "preview": "Interactive session",
             "first_user_message": "",
+            "workdir": self.workdir or "",
             "status": self.status,
             "mode": self.mode,
         }
@@ -1078,14 +1082,16 @@ class SessionManager:
         self.counter += 1
         session_id = str(uuid.uuid4())
         fallback_title = f"Session {self.counter:02d}"
+        resolved_workdir = str(resolve_workdir(workdir))
         if mode == "terminal":
-            process, master_fd = spawn_terminal_process(workdir, session_id, permission_mode)
+            process, master_fd = spawn_terminal_process(resolved_workdir, session_id, permission_mode)
             session = TerminalSession(
                 id=session_id,
                 title=title or fallback_title,
                 process=process,
                 master_fd=master_fd,
                 loop=self.loop,
+                workdir=resolved_workdir,
                 title_locked=bool(title),
             )
             self.sessions[session_id] = session
@@ -1099,7 +1105,7 @@ class SessionManager:
                     lambda: asyncio.create_task(session.handle_input(f"{prompt}\r"))
                 )
             return session
-        process = spawn_process(workdir, session_id, permission_mode)
+        process = spawn_process(resolved_workdir, session_id, permission_mode)
         if process.stdin is None or process.stdout is None:
             raise RuntimeError("Failed to open Claude Code streams.")
         session = Session(
@@ -1109,6 +1115,7 @@ class SessionManager:
             stdin=process.stdin,
             stdout=process.stdout,
             loop=self.loop,
+            workdir=resolved_workdir,
             title_locked=bool(title),
         )
         self.sessions[session_id] = session
@@ -1135,9 +1142,10 @@ class SessionManager:
         fallback_title = title or f"Session {self.counter:02d}"
         created = created_at or now_iso()
         updated = last_updated or created
+        resolved_workdir = str(resolve_workdir(workdir))
         if mode == "terminal":
             process, master_fd = spawn_terminal_process(
-                workdir, session_id, permission_mode, resume_id=session_id
+                resolved_workdir, session_id, permission_mode, resume_id=session_id
             )
             session = TerminalSession(
                 id=session_id,
@@ -1145,6 +1153,7 @@ class SessionManager:
                 process=process,
                 master_fd=master_fd,
                 loop=self.loop,
+                workdir=resolved_workdir,
                 created_at=created,
                 last_updated=updated,
                 title_locked=bool(title),
@@ -1152,7 +1161,7 @@ class SessionManager:
             self.sessions[session_id] = session
             session.start_reader()
             return session
-        process = spawn_process(workdir, session_id, permission_mode, resume_id=session_id)
+        process = spawn_process(resolved_workdir, session_id, permission_mode, resume_id=session_id)
         if process.stdin is None or process.stdout is None:
             raise RuntimeError("Failed to open Claude Code streams.")
         session = Session(
@@ -1162,6 +1171,7 @@ class SessionManager:
             stdin=process.stdin,
             stdout=process.stdout,
             loop=self.loop,
+            workdir=resolved_workdir,
             created_at=created,
             last_updated=updated,
             messages=list(messages or []),
@@ -1282,6 +1292,7 @@ async def list_history(workdir: Optional[str] = None) -> list[dict[str, object]]
                 "last_updated": last_updated,
                 "status": "closed",
                 "mode": "stream",
+                "workdir": project_path,
                 "is_history": True,
             }
         )
