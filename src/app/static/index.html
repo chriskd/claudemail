@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#f2f2f7" />
+    <meta name="theme-color" content="#ffffff" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Claudemail" />
@@ -12,13 +12,13 @@
     <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
     <link rel="icon" href="/static/icons/icon-192.png" sizes="192x192" type="image/png" />
     <link rel="stylesheet" href="/static/vendor/xterm/xterm.css" />
-    <link rel="stylesheet" href="/static/app.css?v=20250119-1" />
+    <link rel="stylesheet" href="/static/app.css?v=20250119-6" />
   </head>
   <body>
     <div class="app-shell">
       <header class="mail-header">
         <div class="nav-row nav-default" id="navDefault">
-          <button class="nav-back" type="button" id="mailboxesButton">
+          <button class="nav-back" type="button" id="mailboxesButton" aria-label="Mailboxes">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
                 d="M15.5 4.5 7 12l8.5 7.5"
@@ -29,10 +29,10 @@
                 stroke-linejoin="round"
               />
             </svg>
-            <span>Mailboxes</span>
+            <span class="nav-back-label">Mailboxes</span>
           </button>
           <div class="nav-right">
-            <button class="nav-link" id="selectButton" type="button">Select</button>
+          <button class="nav-link nav-pill" id="selectButton" type="button">Select</button>
             <button class="icon-button more" id="moreButton" type="button" title="More">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M5 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm9 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm9 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z" />
@@ -44,17 +44,25 @@
 
         <div class="nav-row nav-select" id="navSelect">
           <button class="nav-link" id="selectAllButton" type="button">Select All</button>
-          <button class="icon-button ghost" id="cancelSelectButton" type="button" title="Cancel">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="m6.6 6.6 10.8 10.8m0-10.8L6.6 17.4"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-              />
-            </svg>
-            <span class="sr-only">Cancel</span>
-          </button>
+          <div class="nav-right">
+            <button class="icon-button ghost" id="cancelSelectButton" type="button" title="Cancel">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="m6.6 6.6 10.8 10.8m0-10.8L6.6 17.4"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <span class="sr-only">Cancel</span>
+            </button>
+            <button class="icon-button more" id="moreButtonSelect" type="button" title="More">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm9 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm9 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z" />
+              </svg>
+              <span class="sr-only">More</span>
+            </button>
+          </div>
         </div>
 
         <div class="title-block">
@@ -64,45 +72,83 @@
 
         <div class="category-row">
           <div class="category-icons">
-            <button class="icon-chip active" type="button" data-category="primary" aria-pressed="true">
+            <button
+              class="icon-chip active"
+              type="button"
+              data-category="primary"
+              aria-pressed="true"
+              aria-label="Primary"
+            >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4 0-7 2-7 4v2h14v-2c0-2-3-4-7-4Z" />
               </svg>
+              <span class="chip-label">Primary</span>
             </button>
-            <button class="icon-chip" type="button" data-category="transactions" aria-pressed="false">
+            <button
+              class="icon-chip"
+              type="button"
+              data-category="transactions"
+              aria-pressed="false"
+              aria-label="Transactions"
+            >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M7 6h10l2 4v9a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-9l2-4Zm2 0a3 3 0 0 1 6 0h-2a1 1 0 0 0-2 0H9Z" />
               </svg>
+              <span class="chip-label">Transactions</span>
             </button>
-            <button class="icon-chip" type="button" data-category="updates" aria-pressed="false">
+            <button
+              class="icon-chip"
+              type="button"
+              data-category="updates"
+              aria-pressed="false"
+              aria-label="Updates"
+            >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2Zm7-6V11a7 7 0 0 0-14 0v5l-2 2v1h18v-1l-2-2Z" />
               </svg>
+              <span class="chip-label">Updates</span>
             </button>
-            <button class="icon-chip" type="button" data-category="promotions" aria-pressed="false">
+            <button
+              class="icon-chip"
+              type="button"
+              data-category="promotions"
+              aria-pressed="false"
+              aria-label="Promotions"
+            >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M4 10h4l8-4v12l-8-4H4v-4Zm0 6h4v3H4v-3Z" />
               </svg>
+              <span class="chip-label">Promotions</span>
             </button>
           </div>
-          <button class="filter-pill" type="button" id="allMailButton">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2l-8 5-8-5V6Zm0 5 8 5 8-5v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7Z"
-              />
-            </svg>
-            <span>All Mail</span>
-          </button>
         </div>
       </header>
 
       <main class="list-view">
-        <div class="session-list" id="sessionList"></div>
+        <div class="session-list" id="sessionList">
+          <div class="list-empty" id="listEmpty" aria-hidden="true">
+            <div class="empty-title">No Mail</div>
+            <div class="empty-copy">You're all caught up.</div>
+          </div>
+        </div>
       </main>
 
       <div class="footer-meta">
         <div class="footer-updated" id="statusPill">Updated Just Now</div>
         <div class="footer-unread" id="unreadCount">0 Unread</div>
+        <div class="filter-indicator" id="filterIndicator" aria-hidden="true">
+          <span class="filter-indicator-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M3 6h12M3 12h18M3 18h9"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </span>
+          <span>Filtered by Unread</span>
+        </div>
       </div>
 
       <footer class="mail-footer">
@@ -125,6 +171,13 @@
             </svg>
           </span>
           <input id="searchInput" type="search" placeholder="Search" />
+          <span class="search-mic" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"
+              />
+            </svg>
+          </span>
         </label>
         <button class="compose-button" id="newSession" type="button" title="Compose">
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -157,7 +210,7 @@
 
     <section class="message-pane" id="messagePane" aria-hidden="true">
       <header class="detail-nav">
-        <button class="nav-back detail-back" id="backButton" type="button">
+        <button class="nav-back detail-back" id="backButton" type="button" aria-label="All Inboxes">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
               d="M15.5 4.5 7 12l8.5 7.5"
@@ -168,21 +221,22 @@
               stroke-linejoin="round"
             />
           </svg>
-          <span>All Inboxes</span>
+          <span class="nav-back-label">All Inboxes</span>
         </button>
         <div class="detail-title" id="detailTitle">0 Messages</div>
         <div class="detail-actions">
           <button class="icon-button ghost" id="refreshSessions" type="button" title="Refresh">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 11a6 6 0 1 1 1.7 4.2l1.4-1.4A4 4 0 1 0 8 12h2a6 6 0 0 1-4 5.2V15H4v-4h4l-2 2Z" />
+            <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-stroke">
+              <path d="M18 8a6 6 0 1 0 1.4 4.1" />
+              <path d="M18 8h3V5" />
             </svg>
             <span class="sr-only">Refresh</span>
           </button>
-          <button class="icon-button ghost" id="stopSession" type="button" title="End Session">
+          <button class="icon-button ghost" id="stopSession" type="button" title="Trash">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M7 7h10v10H7V7Zm2-3h6l1 2H8l1-2Z" />
             </svg>
-            <span class="sr-only">End Session</span>
+            <span class="sr-only">Trash</span>
           </button>
         </div>
       </header>
@@ -190,7 +244,6 @@
       <div class="message-header">
         <div class="message-title-row">
           <div class="message-title" id="messageTitle">No Message Selected</div>
-          <button class="message-action" id="summarizeButton" type="button">Summarize</button>
         </div>
         <div class="message-subtitle" id="messageSubtitle">
           Select a session to control Claude Code.
@@ -258,14 +311,43 @@
           <span class="menu-toggle-check"></span>
         </button>
       </div>
-      <button class="menu-row" type="button" id="menuAbout">About Categories</button>
-      <button class="menu-row" type="button" id="menuPriority">Show Priority</button>
+      <button class="menu-row" type="button" id="menuAbout">
+        <span class="menu-row-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 8.2a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm-1.5 8.6h3M12 11v5" />
+            <circle cx="12" cy="12" r="9" />
+          </svg>
+        </span>
+        <span>About Categories</span>
+      </button>
+      <button class="menu-row checked" type="button" id="menuPriority">
+        <span class="menu-row-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M5 12.5 9.2 17 19 7.5" />
+          </svg>
+        </span>
+        <span>Show Priority</span>
+      </button>
       <button class="menu-row menu-toggle-row" type="button" id="menuContactPhotos">
-        <span>Show Contact Photos</span>
+        <span class="menu-row-label">
+          <span class="menu-row-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 12a3.5 3.5 0 1 0-3.5-3.5A3.5 3.5 0 0 0 12 12Z" />
+              <path d="M5 19a7 7 0 0 1 14 0" />
+            </svg>
+          </span>
+          <span>Show Contact Photos</span>
+        </span>
         <span class="menu-check"></span>
       </button>
-      <button class="menu-row" type="button" id="menuSelect">Select</button>
-      <button class="menu-row" type="button" id="menuSettings">Session Settings</button>
+      <button class="menu-row no-icon" type="button" id="menuSelect">
+        <span class="menu-row-icon placeholder" aria-hidden="true"></span>
+        <span>Select</span>
+      </button>
+      <button class="menu-row no-icon" type="button" id="menuSettings">
+        <span class="menu-row-icon placeholder" aria-hidden="true"></span>
+        <span>Session Settings</span>
+      </button>
     </aside>
 
     <div class="settings-backdrop" id="settingsBackdrop"></div>
@@ -302,9 +384,10 @@
         <select class="settings-input" id="themeInput">
           <option value="system" selected>System</option>
           <option value="dark">Dark</option>
+          <option value="oled">OLED Black</option>
           <option value="light">Light</option>
         </select>
-        <div class="settings-help">Choose dark mode or follow your system setting.</div>
+        <div class="settings-help">Choose light, dark, or OLED black, or follow your system setting.</div>
 
         <label class="settings-label" for="userInitialInput">Your initial</label>
         <input
@@ -392,6 +475,6 @@
     </aside>
     <script src="/static/vendor/xterm/xterm.js"></script>
     <script src="/static/vendor/xterm/addon-fit.js"></script>
-    <script src="/static/app.js?v=20250119-1"></script>
+    <script src="/static/app.js?v=20250119-6"></script>
   </body>
 </html>

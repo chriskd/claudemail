@@ -11,11 +11,16 @@ const terminalTime = document.getElementById("terminalTime");
 const composer = document.getElementById("composer");
 const composerInput = document.getElementById("composerInput");
 const newSessionButton = document.getElementById("newSession");
-const stopSessionButton = document.getElementById("stopSession");
+const deleteSessionButton = document.getElementById("stopSession");
 const refreshSessionsButton = document.getElementById("refreshSessions");
 const statusPill = document.getElementById("statusPill");
 const unreadCount = document.getElementById("unreadCount");
+const filterButton = document.getElementById("filterButton");
+const filterIndicator = document.getElementById("filterIndicator");
 const searchInput = document.getElementById("searchInput");
+const listEmpty = document.getElementById("listEmpty");
+const listEmptyTitle = listEmpty?.querySelector(".empty-title");
+const listEmptyCopy = listEmpty?.querySelector(".empty-copy");
 const messagePane = document.getElementById("messagePane");
 const backButton = document.getElementById("backButton");
 const mailSubtitle = document.getElementById("mailSubtitle");
@@ -23,6 +28,10 @@ const selectButton = document.getElementById("selectButton");
 const selectAllButton = document.getElementById("selectAllButton");
 const cancelSelectButton = document.getElementById("cancelSelectButton");
 const moreButton = document.getElementById("moreButton");
+const moreButtonSelect = document.getElementById("moreButtonSelect");
+const markButton = document.getElementById("markButton");
+const moveButton = document.getElementById("moveButton");
+const trashButton = document.getElementById("trashButton");
 const menuBackdrop = document.getElementById("menuBackdrop");
 const moreMenu = document.getElementById("moreMenu");
 const menuCategories = document.getElementById("menuCategories");
@@ -32,7 +41,6 @@ const menuSelect = document.getElementById("menuSelect");
 const menuSettings = document.getElementById("menuSettings");
 const menuAbout = document.getElementById("menuAbout");
 const menuPriority = document.getElementById("menuPriority");
-const summarizeButton = document.getElementById("summarizeButton");
 const settingsBackdrop = document.getElementById("settingsBackdrop");
 const settingsPanel = document.getElementById("settingsPanel");
 const settingsClose = document.getElementById("settingsClose");
@@ -57,6 +65,7 @@ const folderPickerSubtitle = document.getElementById("folderPickerSubtitle");
 const folderPickerStatus = document.getElementById("folderPickerStatus");
 const folderPickerUse = document.getElementById("folderPickerUse");
 const folderPickerNew = document.getElementById("folderPickerNew");
+const categoryButtons = Array.from(document.querySelectorAll(".icon-chip"));
 
 const SETTINGS_KEY = "claudemail.settings";
 const UI_KEY = "claudemail.ui";
@@ -69,6 +78,12 @@ const defaultSettings = {
   theme: "system",
   userInitial: "",
   accessToken: "",
+};
+
+const TERMINAL_THEME_BASE = {
+  foreground: "#f2f2f7",
+  selection: "rgba(255, 255, 255, 0.2)",
+  cursor: "#f2f2f7",
 };
 
 const CLAUDE_AVATAR = "/static/icons/claude-color.png";
@@ -88,6 +103,8 @@ const state = {
   activeSession: null,
   pendingInputs: [],
   filter: "",
+  filterUnread: false,
+  activeCategory: "primary",
   selectionMode: false,
   selectedIds: new Set(),
   ui: { ...defaultUi },
@@ -123,7 +140,8 @@ function setStatus(text, offline = false) {
 
 function sanitizeSettings(raw) {
   const rawTheme = typeof raw?.theme === "string" ? raw.theme : "system";
-  const theme = rawTheme === "dark" || rawTheme === "light" ? rawTheme : "system";
+  const theme =
+    rawTheme === "dark" || rawTheme === "light" || rawTheme === "oled" ? rawTheme : "system";
   const rawInitial = typeof raw?.userInitial === "string" ? raw.userInitial.trim() : "";
   return {
     terminalMode: raw?.terminalMode !== false,
@@ -159,25 +177,42 @@ const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 
 function isDarkTheme(theme) {
   if (theme === "dark") return true;
+  if (theme === "oled") return true;
   if (theme === "light") return false;
   return themeMedia.matches;
 }
 
+function terminalThemeFor(theme) {
+  return {
+    ...TERMINAL_THEME_BASE,
+    background: theme === "oled" ? "#000000" : "#0b0b0f",
+  };
+}
+
 function applyTheme(theme) {
   const dark = isDarkTheme(theme);
+  const oled = theme === "oled";
   document.body.classList.toggle("theme-dark", dark);
   document.body.classList.toggle("theme-light", !dark);
+  document.body.classList.toggle("theme-oled", oled);
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) {
-    meta.setAttribute("content", dark ? "#0b0b10" : "#f2f2f7");
+    meta.setAttribute("content", oled ? "#000000" : dark ? "#0b0b10" : "#ffffff");
+  }
+  if (terminalState.term) {
+    terminalState.term.options.theme = terminalThemeFor(theme);
   }
 }
 
 function applySettingsState(next) {
+  const previousWorkdir = state.settings.workdir || "";
   state.settings = saveSettings(next);
   applyTheme(state.settings.theme);
   if (state.activeMessages) {
     renderMessages(state.activeMessages);
+  }
+  if (state.settings.workdir !== previousWorkdir) {
+    fetchHistorySessions(state.settings.workdir);
   }
   return state.settings;
 }
@@ -294,12 +329,7 @@ function ensureTerminalInstance() {
     convertEol: true,
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
     fontSize: 12,
-    theme: {
-      background: "#0b0b0f",
-      foreground: "#f2f2f7",
-      selection: "rgba(255, 255, 255, 0.2)",
-      cursor: "#f2f2f7",
-    },
+    theme: terminalThemeFor(state.settings.theme),
   });
   const FitAddonCtor = window.FitAddon?.FitAddon || window.FitAddon;
   if (FitAddonCtor) {
@@ -627,7 +657,13 @@ function updateUnreadCount() {
   const unreadLabel = `${unread.toLocaleString()} Unread`;
   unreadCount.textContent = unreadLabel;
   if (mailSubtitle) {
-    mailSubtitle.innerHTML = `All Mail &middot; ${unreadLabel}`;
+    if (state.selectionMode) {
+      mailSubtitle.textContent = statusPill?.textContent || "Updated Just Now";
+    } else if (state.ui.listView) {
+      mailSubtitle.textContent = unreadLabel;
+    } else {
+      mailSubtitle.innerHTML = `All Mail &middot; ${unreadLabel}`;
+    }
   }
 }
 
@@ -643,6 +679,68 @@ function clearThread() {
 function updateEmptyState(hasMessages) {
   const showEmpty = !hasMessages && !isTerminalMode();
   emptyState.style.display = showEmpty ? "grid" : "none";
+}
+
+function updateListEmptyState(count) {
+  if (!listEmpty) return;
+  const hasFilter = state.filter.trim().length > 0;
+  const hasUnreadFilter = state.filterUnread;
+  if (listEmptyTitle) {
+    if (hasFilter) {
+      listEmptyTitle.textContent = "No Results";
+    } else if (hasUnreadFilter) {
+      listEmptyTitle.textContent = "No Unread";
+    } else {
+      listEmptyTitle.textContent = "No Mail";
+    }
+  }
+  if (listEmptyCopy) {
+    if (hasFilter) {
+      listEmptyCopy.textContent = "Try a different search.";
+    } else if (hasUnreadFilter) {
+      listEmptyCopy.textContent = "You're all caught up.";
+    } else {
+      listEmptyCopy.textContent = "You're all caught up.";
+    }
+  }
+  const visible = count === 0;
+  listEmpty.classList.toggle("visible", visible);
+  listEmpty.setAttribute("aria-hidden", visible ? "false" : "true");
+}
+
+function updateFilterIndicator() {
+  if (!filterIndicator) return;
+  const active = state.filterUnread;
+  filterIndicator.classList.toggle("visible", active);
+  filterIndicator.setAttribute("aria-hidden", active ? "false" : "true");
+  if (filterButton) {
+    filterButton.classList.toggle("active", active);
+  }
+}
+
+function setActiveCategory(category) {
+  if (!categoryButtons.length) return;
+  const next =
+    category ||
+    categoryButtons.find((button) => button.classList.contains("active"))?.dataset.category ||
+    categoryButtons[0]?.dataset.category ||
+    "primary";
+  state.activeCategory = next;
+  categoryButtons.forEach((button) => {
+    const isActive = button.dataset.category === next;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+}
+
+function initCategoryChips() {
+  if (!categoryButtons.length) return;
+  setActiveCategory(state.activeCategory);
+  categoryButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveCategory(button.dataset.category);
+    });
+  });
 }
 
 function buildMessageElement(message) {
@@ -742,20 +840,45 @@ function renderMessages(messages) {
   updateMessageCount(messages.length);
 }
 
+function sessionTimestamp(session) {
+  const raw = session.last_updated || session.created_at || "";
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function sortSessions(sessions) {
+  return sessions.sort((a, b) => sessionTimestamp(b) - sessionTimestamp(a));
+}
+
 function getFilteredSessions() {
   const filter = state.filter.toLowerCase();
-  return state.sessions.filter((session) =>
-    session.title.toLowerCase().includes(filter) ||
-    (session.preview || "").toLowerCase().includes(filter)
+  const filtered = state.sessions.filter(
+    (session) =>
+      session.title.toLowerCase().includes(filter) ||
+      (session.preview || "").toLowerCase().includes(filter)
   );
+  if (!state.filterUnread) return filtered;
+  return filtered.filter((session) => session.unread);
 }
 
 function updateSelectionLabel() {
-  if (!state.selectionMode) return;
+  if (!state.selectionMode) {
+    updateSelectionActions();
+    return;
+  }
   const filtered = getFilteredSessions();
   const allSelected =
     filtered.length > 0 && filtered.every((session) => state.selectedIds.has(session.id));
   selectAllButton.textContent = allSelected ? "Deselect All" : "Select All";
+  updateSelectionActions();
+}
+
+function updateSelectionActions() {
+  const hasSelection = state.selectedIds.size > 0;
+  [markButton, moveButton, trashButton].forEach((button) => {
+    if (!button) return;
+    button.disabled = !hasSelection;
+  });
 }
 
 function toggleSelection(sessionId) {
@@ -800,6 +923,7 @@ function toggleSelectAll() {
 function applyUiState(next) {
   state.ui = saveUiSettings(next);
   document.body.classList.toggle("hide-avatars", !state.ui.showContactPhotos);
+  document.body.classList.toggle("list-view", state.ui.listView);
   updateMenuState();
   renderSessionList();
 }
@@ -816,6 +940,9 @@ function updateMenuState() {
 
 function renderSessionList() {
   sessionList.innerHTML = "";
+  if (listEmpty) {
+    sessionList.appendChild(listEmpty);
+  }
   const filtered = getFilteredSessions();
 
   filtered.forEach((session) => {
@@ -858,12 +985,22 @@ function renderSessionList() {
     const titleText = session.title || "Claude Code";
     title.textContent = titleText;
 
+    const meta = document.createElement("div");
+    meta.className = "session-meta";
+
     const time = document.createElement("div");
     time.className = "session-time";
     time.textContent = formatTime(session.last_updated);
 
+    const chevron = document.createElement("div");
+    chevron.className = "session-chevron";
+    chevron.setAttribute("aria-hidden", "true");
+
+    meta.appendChild(time);
+    meta.appendChild(chevron);
+
     row.appendChild(title);
-    row.appendChild(time);
+    row.appendChild(meta);
 
     const { subject, snippet } = splitPreview(session.preview);
 
@@ -906,23 +1043,63 @@ function renderSessionList() {
 
   updateUnreadCount();
   updateSelectionLabel();
+  updateListEmptyState(filtered.length);
+  updateFilterIndicator();
 }
 
 async function fetchSessions() {
   const response = await apiFetch("/api/sessions");
   if (!response.ok) return;
   const sessions = await response.json();
-  const previous = new Map(state.sessions.map((session) => [session.id, session]));
-  state.sessions = sessions.map((session) => {
+  const previous = new Map(
+    state.sessions.filter((session) => !session.is_history).map((session) => [session.id, session])
+  );
+  const activeSessions = sessions.map((session) => {
     const cached = previous.get(session.id);
     return {
       ...session,
+      is_history: false,
       mode: session.mode || cached?.mode || "stream",
       unread: cached?.unread ?? session.id !== state.activeSessionId,
       last_role: cached?.last_role || null,
     };
   });
+  const activeIds = new Set(activeSessions.map((session) => session.id));
+  const historySessions = state.sessions.filter((session) => session.is_history);
+  state.sessions = sortSessions([
+    ...activeSessions,
+    ...historySessions.filter((session) => !activeIds.has(session.id)),
+  ]);
   renderSessionList();
+}
+
+function mergeHistorySessions(historySessions) {
+  const activeSessions = state.sessions.filter((session) => !session.is_history);
+  const activeIds = new Set(activeSessions.map((session) => session.id));
+  const normalizedHistory = historySessions.map((session) => ({
+    ...session,
+    is_history: true,
+    unread: false,
+    last_role: null,
+  }));
+  state.sessions = sortSessions([
+    ...activeSessions,
+    ...normalizedHistory.filter((session) => !activeIds.has(session.id)),
+  ]);
+  renderSessionList();
+}
+
+async function fetchHistorySessions(workdirOverride) {
+  const candidate = workdirOverride ?? state.settings.workdir;
+  const workdir = (candidate || "").trim();
+  const url = new URL("/api/history", window.location.origin);
+  if (workdir) {
+    url.searchParams.set("workdir", workdir);
+  }
+  const response = await apiFetch(url);
+  if (!response.ok) return;
+  const historySessions = await response.json();
+  mergeHistorySessions(historySessions);
 }
 
 async function fetchSessionDetail(sessionId) {
@@ -935,6 +1112,33 @@ function closeSocket() {
   if (state.socket) {
     state.socket.close();
     state.socket = null;
+  }
+}
+
+function clearActiveSession() {
+  state.activeSessionId = null;
+  state.activeSession = null;
+  state.activeMessages = null;
+  state.activeSessionMode = "stream";
+  closeSocket();
+  closeTerminalSocket();
+  updateHeader(null);
+  renderMessages([]);
+  setStatus("idle");
+  hideMessagePane();
+}
+
+function removeLocalSessions(sessionIds, { render = true } = {}) {
+  if (!sessionIds.length) return;
+  const idSet = new Set(sessionIds);
+  const activeRemoved = state.activeSessionId && idSet.has(state.activeSessionId);
+  state.sessions = state.sessions.filter((session) => !idSet.has(session.id));
+  sessionIds.forEach((sessionId) => state.selectedIds.delete(sessionId));
+  if (activeRemoved) {
+    clearActiveSession();
+  }
+  if (render) {
+    renderSessionList();
   }
 }
 
@@ -1020,17 +1224,19 @@ function ensureSession() {
   return createSession();
 }
 
-async function selectSession(sessionId) {
-  const detail = await fetchSessionDetail(sessionId);
-  if (!detail) return;
-  const existingIndex = state.sessions.findIndex((item) => item.id === sessionId);
+function applySessionDetail(detail) {
+  const existingIndex = state.sessions.findIndex(
+    (item) => item.id === detail.id && !item.is_history
+  );
   if (existingIndex >= 0) {
     state.sessions[existingIndex] = { ...state.sessions[existingIndex], ...detail };
     state.sessions[existingIndex].unread = false;
+    state.sessions[existingIndex].is_history = false;
   } else {
-    state.sessions.unshift({ ...detail, unread: false, last_role: null });
+    state.sessions.unshift({ ...detail, unread: false, last_role: null, is_history: false });
   }
-  state.activeSessionId = sessionId;
+  state.sessions = state.sessions.filter((item) => !(item.is_history && item.id === detail.id));
+  state.activeSessionId = detail.id;
   state.activeSessionMode = detail.mode || "stream";
   state.activeSession = detail;
   setStatus(detail.status || "running", detail.status === "closed");
@@ -1044,11 +1250,34 @@ async function selectSession(sessionId) {
   showMessagePane();
   if (isTerminalMode()) {
     closeSocket();
-    openTerminalSocket(sessionId);
+    openTerminalSocket(detail.id);
   } else {
     closeTerminalSocket();
-    openSocket(sessionId);
+    openSocket(detail.id);
   }
+}
+
+async function resumeHistorySession(session) {
+  const payload = buildResumePayload(session.id, state.settings);
+  const response = await apiFetch("/api/sessions/resume", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) return;
+  const detail = await response.json();
+  applySessionDetail(detail);
+}
+
+async function selectSession(sessionId) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (session?.is_history) {
+    await resumeHistorySession(session);
+    return;
+  }
+  const detail = await fetchSessionDetail(sessionId);
+  if (!detail) return;
+  applySessionDetail(detail);
 }
 
 function buildSessionPayload(settings) {
@@ -1060,8 +1289,18 @@ function buildSessionPayload(settings) {
   };
 }
 
+function buildResumePayload(sessionId, settings) {
+  return {
+    session_id: sessionId,
+    mode: settings.terminalMode ? "terminal" : "stream",
+    permission_mode: settings.permissionMode || null,
+    workdir: settings.workdir || null,
+  };
+}
+
 async function createSession(settingsOverride) {
-  const settings = { ...loadSettings(), ...sanitizeSettings(settingsOverride || {}) };
+  const overrides = settingsOverride ? sanitizeSettings(settingsOverride) : {};
+  const settings = { ...loadSettings(), ...overrides };
   const payload = buildSessionPayload(settings);
   const response = await apiFetch("/api/sessions", {
     method: "POST",
@@ -1072,7 +1311,7 @@ async function createSession(settingsOverride) {
     throw new Error("Failed to create session");
   }
   const session = await response.json();
-  state.sessions.unshift({ ...session, unread: false, last_role: null });
+  state.sessions.unshift({ ...session, unread: false, last_role: null, is_history: false });
   await selectSession(session.id);
   return session.id;
 }
@@ -1104,9 +1343,33 @@ async function sendInput(content) {
   composerInput.style.height = "";
 }
 
-async function stopSession() {
+async function deleteSessions(sessionIds, { renderAfter = true } = {}) {
+  if (!sessionIds.length) return;
+  let failed = false;
+  await Promise.all(
+    sessionIds.map(async (sessionId) => {
+      const response = await apiFetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+      if (!response.ok && response.status !== 404) {
+        failed = true;
+      }
+    })
+  );
+  removeLocalSessions(sessionIds, { render: renderAfter });
+  if (failed) {
+    await fetchSessions();
+  }
+}
+
+async function deleteActiveSession() {
   if (!state.activeSessionId) return;
-  await apiFetch(`/api/sessions/${state.activeSessionId}/stop`, { method: "POST" });
+  await deleteSessions([state.activeSessionId]);
+}
+
+async function deleteSelectedSessions() {
+  if (!state.selectionMode || state.selectedIds.size === 0) return;
+  const sessionIds = Array.from(state.selectedIds);
+  await deleteSessions(sessionIds, { renderAfter: false });
+  exitSelectionMode();
 }
 
 composer.addEventListener("submit", (event) => {
@@ -1127,31 +1390,38 @@ composerInput.addEventListener("input", () => {
 });
 
 newSessionButton.addEventListener("click", () => createSession());
-stopSessionButton.addEventListener("click", () => stopSession());
+deleteSessionButton.addEventListener("click", () => deleteActiveSession());
 refreshSessionsButton.addEventListener("click", () => fetchSessions());
 backButton.addEventListener("click", () => hideMessagePane());
-if (summarizeButton) {
-  summarizeButton.addEventListener("click", () => {
-    if (!state.activeSessionId) return;
-    sendInput("Summarize this thread so far.");
-  });
-}
 
 searchInput.addEventListener("input", (event) => {
   state.filter = event.target.value;
   renderSessionList();
 });
 
+if (filterButton) {
+  filterButton.addEventListener("click", () => {
+    state.filterUnread = !state.filterUnread;
+    renderSessionList();
+  });
+}
+
 selectButton.addEventListener("click", () => enterSelectionMode());
 selectAllButton.addEventListener("click", () => toggleSelectAll());
 cancelSelectButton.addEventListener("click", () => exitSelectionMode());
+if (trashButton) {
+  trashButton.addEventListener("click", () => deleteSelectedSessions());
+}
 
-moreButton.addEventListener("click", () => {
-  if (moreMenu.classList.contains("open")) {
-    closeMenu();
-  } else {
-    openMenu();
-  }
+const menuButtons = [moreButton, moreButtonSelect].filter(Boolean);
+menuButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    if (moreMenu.classList.contains("open")) {
+      closeMenu();
+    } else {
+      openMenu();
+    }
+  });
 });
 menuBackdrop.addEventListener("click", () => closeMenu());
 menuAbout.addEventListener("click", () => closeMenu());
@@ -1244,6 +1514,8 @@ applyTheme(state.settings.theme);
 setStatus("idle");
 applySettingsToForm(state.settings);
 fetchSessions();
+fetchHistorySessions(state.settings.workdir);
+initCategoryChips();
 
 themeMedia.addEventListener("change", () => {
   if (state.settings.theme === "system") {

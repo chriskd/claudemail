@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 import pty
+import re
 import shlex
 import secrets
 import struct
@@ -12,6 +13,7 @@ import subprocess
 import termios
 import threading
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,6 +62,141 @@ def resolve_workdir(raw: Optional[str]) -> Path:
     if env:
         return normalize_workdir_path(env, root)
     return root
+
+
+def get_claude_config_dir() -> Path:
+    raw = os.getenv("CLAUDE_CONFIG_DIR")
+    if raw:
+        return safe_resolve(Path(raw))
+    return safe_resolve(Path.home() / ".claude")
+
+
+def project_key_from_path(path: Path) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "-", str(path))
+
+
+def project_dir_for_path(path: Path) -> Path:
+    return get_claude_config_dir() / "projects" / project_key_from_path(path)
+
+
+def parse_sessions_index(project_dir: Path) -> list[dict[str, object]]:
+    index_path = project_dir / "sessions-index.json"
+    if not index_path.exists():
+        return []
+    try:
+        payload = json.loads(index_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    entries = payload.get("entries") if isinstance(payload, dict) else None
+    return entries if isinstance(entries, list) else []
+
+
+def iso_from_millis(value: object) -> Optional[str]:
+    if not isinstance(value, (int, float)):
+        return None
+    return datetime.fromtimestamp(value / 1000, timezone.utc).isoformat()
+
+
+def extract_message_text(message: dict[str, object]) -> str:
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "text" and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+        return "".join(parts)
+    return ""
+
+
+def resolve_history_session_path(
+    project_dir: Path,
+    entry: dict[str, object],
+    session_id: str,
+) -> Optional[Path]:
+    raw = entry.get("fullPath")
+    if isinstance(raw, str):
+        candidate = safe_resolve(Path(raw))
+        if candidate.exists() and project_dir in candidate.parents:
+            return candidate
+    fallback = project_dir / f"{session_id}.jsonl"
+    if fallback.exists():
+        return fallback
+    return None
+
+
+def read_session_preview(session_path: Path) -> tuple[str, Optional[str]]:
+    last_text = ""
+    last_timestamp: Optional[str] = None
+    try:
+        with session_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if payload.get("type") not in {"user", "assistant"}:
+                    continue
+                message = payload.get("message")
+                if not isinstance(message, dict):
+                    continue
+                text = extract_message_text(message).strip()
+                if not text:
+                    continue
+                last_text = text
+                timestamp = payload.get("timestamp")
+                if isinstance(timestamp, str):
+                    last_timestamp = timestamp
+    except OSError:
+        return "", None
+    return last_text, last_timestamp
+
+
+def load_session_messages(session_path: Path, max_messages: int) -> list[dict[str, str]]:
+    messages: deque[dict[str, str]] = deque(maxlen=max_messages)
+    try:
+        with session_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                payload_type = payload.get("type")
+                if payload_type not in {"user", "assistant"}:
+                    continue
+                message = payload.get("message")
+                if not isinstance(message, dict):
+                    continue
+                text = extract_message_text(message).strip()
+                if not text:
+                    continue
+                message_id = payload.get("uuid")
+                if not isinstance(message_id, str):
+                    message_id = message.get("id") if isinstance(message.get("id"), str) else str(uuid.uuid4())
+                timestamp = payload.get("timestamp")
+                if not isinstance(timestamp, str):
+                    timestamp = now_iso()
+                role = "user" if payload_type == "user" else "claude"
+                messages.append(
+                    {
+                        "id": message_id,
+                        "role": role,
+                        "content": text,
+                        "timestamp": timestamp,
+                    }
+                )
+    except OSError:
+        return []
+    return list(messages)
 
 
 def get_api_token() -> Optional[str]:
@@ -139,7 +276,11 @@ def strip_flag(cmd: list[str], flag: str) -> list[str]:
     return cleaned
 
 
-def build_stream_command(session_id: str, permission_mode: Optional[str]) -> list[str]:
+def build_stream_command(
+    session_id: str,
+    permission_mode: Optional[str],
+    resume_id: Optional[str] = None,
+) -> list[str]:
     cmd = build_command()
     ensure_flag(cmd, "--print")
     ensure_flag(cmd, "--input-format", "stream-json")
@@ -151,10 +292,17 @@ def build_stream_command(session_id: str, permission_mode: Optional[str]) -> lis
     if permission_value:
         cmd = strip_flag(cmd, "--permission-mode")
         ensure_flag(cmd, "--permission-mode", permission_value)
+    if resume_id:
+        cmd = strip_flag(cmd, "--resume")
+        ensure_flag(cmd, "--resume", resume_id)
     return cmd
 
 
-def build_interactive_command(session_id: str, permission_mode: Optional[str]) -> list[str]:
+def build_interactive_command(
+    session_id: str,
+    permission_mode: Optional[str],
+    resume_id: Optional[str] = None,
+) -> list[str]:
     cmd = build_command()
     cmd = strip_flag(cmd, "--print")
     cmd = strip_flag(cmd, "--input-format")
@@ -166,6 +314,9 @@ def build_interactive_command(session_id: str, permission_mode: Optional[str]) -
         cmd = strip_flag(cmd, "--permission-mode")
         ensure_flag(cmd, "--permission-mode", permission_value)
     ensure_flag(cmd, "--session-id", session_id)
+    if resume_id:
+        cmd = strip_flag(cmd, "--resume")
+        ensure_flag(cmd, "--resume", resume_id)
     return cmd
 
 
@@ -173,8 +324,9 @@ def spawn_process(
     workdir: Optional[str],
     session_id: str,
     permission_mode: Optional[str],
+    resume_id: Optional[str] = None,
 ) -> subprocess.Popen[str]:
-    cmd = build_stream_command(session_id, permission_mode)
+    cmd = build_stream_command(session_id, permission_mode, resume_id)
     resolved_workdir = resolve_workdir(workdir)
     return subprocess.Popen(
         cmd,
@@ -192,8 +344,9 @@ def spawn_terminal_process(
     workdir: Optional[str],
     session_id: str,
     permission_mode: Optional[str],
+    resume_id: Optional[str] = None,
 ) -> tuple[subprocess.Popen[bytes], int]:
-    cmd = build_interactive_command(session_id, permission_mode)
+    cmd = build_interactive_command(session_id, permission_mode, resume_id)
     resolved_workdir = resolve_workdir(workdir)
     master_fd, slave_fd = pty.openpty()
     env = os.environ.copy()
@@ -214,6 +367,13 @@ def spawn_terminal_process(
 class CreateSessionRequest(BaseModel):
     title: Optional[str] = None
     prompt: Optional[str] = None
+    workdir: Optional[str] = None
+    permission_mode: Optional[str] = None
+    mode: Optional[str] = None
+
+
+class ResumeSessionRequest(BaseModel):
+    session_id: str
     workdir: Optional[str] = None
     permission_mode: Optional[str] = None
     mode: Optional[str] = None
@@ -787,6 +947,60 @@ class SessionManager:
             self.loop.call_soon_threadsafe(lambda: asyncio.create_task(session.handle_input(prompt)))
         return session
 
+    def resume(
+        self,
+        session_id: str,
+        title: Optional[str],
+        workdir: Optional[str],
+        permission_mode: Optional[str],
+        mode: str,
+        messages: Optional[list[dict[str, str]]] = None,
+        created_at: Optional[str] = None,
+        last_updated: Optional[str] = None,
+    ) -> object:
+        existing = self.sessions.get(session_id)
+        if existing:
+            return existing
+        self.counter += 1
+        fallback_title = title or f"Session {self.counter:02d}"
+        created = created_at or now_iso()
+        updated = last_updated or created
+        if mode == "terminal":
+            process, master_fd = spawn_terminal_process(
+                workdir, session_id, permission_mode, resume_id=session_id
+            )
+            session = TerminalSession(
+                id=session_id,
+                title=fallback_title,
+                process=process,
+                master_fd=master_fd,
+                loop=self.loop,
+                created_at=created,
+                last_updated=updated,
+                title_locked=bool(title),
+            )
+            self.sessions[session_id] = session
+            session.start_reader()
+            return session
+        process = spawn_process(workdir, session_id, permission_mode, resume_id=session_id)
+        if process.stdin is None or process.stdout is None:
+            raise RuntimeError("Failed to open Claude Code streams.")
+        session = Session(
+            id=session_id,
+            title=fallback_title,
+            process=process,
+            stdin=process.stdin,
+            stdout=process.stdout,
+            loop=self.loop,
+            created_at=created,
+            last_updated=updated,
+            messages=list(messages or []),
+            title_locked=bool(title),
+        )
+        self.sessions[session_id] = session
+        session.start_reader()
+        return session
+
     def get(self, session_id: str) -> Optional[object]:
         return self.sessions.get(session_id)
 
@@ -797,9 +1011,17 @@ class SessionManager:
         for session in self.sessions.values():
             session.stop()
 
+    def delete(self, session_id: str) -> Optional[object]:
+        session = self.sessions.pop(session_id, None)
+        if not session:
+            return None
+        session.stop()
+        return session
+
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+MAX_HISTORY_MESSAGES = 200
 
 app = FastAPI(title="Claudemail")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -846,6 +1068,54 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/history")
+async def list_history(workdir: Optional[str] = None) -> list[dict[str, object]]:
+    resolved = resolve_workdir(workdir)
+    project_dir = project_dir_for_path(resolved)
+    if not project_dir.exists():
+        return []
+    entries = parse_sessions_index(project_dir)
+    project_path = str(resolved)
+    history: list[dict[str, str]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("isSidechain") is True:
+            continue
+        if isinstance(entry.get("projectPath"), str) and entry.get("projectPath") != project_path:
+            continue
+        session_id = entry.get("sessionId")
+        if not isinstance(session_id, str):
+            continue
+        session_path = resolve_history_session_path(project_dir, entry, session_id)
+        if not session_path:
+            continue
+        title = entry.get("firstPrompt") if isinstance(entry.get("firstPrompt"), str) else ""
+        title = title.strip() or "Claude Code"
+        preview, preview_timestamp = read_session_preview(session_path)
+        preview_line = preview.strip().splitlines()[0][:140] if preview else ""
+        created = entry.get("created") if isinstance(entry.get("created"), str) else None
+        modified = entry.get("modified") if isinstance(entry.get("modified"), str) else None
+        if not created:
+            created = iso_from_millis(entry.get("fileMtime"))
+        last_updated = preview_timestamp or modified or created or now_iso()
+        created_at = created or last_updated
+        history.append(
+            {
+                "id": session_id,
+                "title": title,
+                "preview": preview_line,
+                "created_at": created_at,
+                "last_updated": last_updated,
+                "status": "closed",
+                "mode": "stream",
+                "is_history": True,
+            }
+        )
+    history.sort(key=lambda item: item.get("last_updated", ""), reverse=True)
+    return history
+
+
 @app.get("/api/sessions")
 async def list_sessions() -> list[dict[str, str]]:
     manager: SessionManager = app.state.manager
@@ -862,6 +1132,51 @@ async def create_session(request: CreateSessionRequest) -> dict[str, object]:
         request.workdir,
         request.permission_mode,
         mode,
+    )
+    return session.to_detail()
+
+
+@app.post("/api/sessions/resume")
+async def resume_session(request: ResumeSessionRequest) -> dict[str, object]:
+    manager: SessionManager = app.state.manager
+    session_id = request.session_id.strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Session ID required.")
+    existing = manager.get(session_id)
+    if existing:
+        return existing.to_detail()
+    resolved = resolve_workdir(request.workdir)
+    project_dir = project_dir_for_path(resolved)
+    entries = parse_sessions_index(project_dir)
+    entry = next(
+        (item for item in entries if isinstance(item, dict) and item.get("sessionId") == session_id),
+        None,
+    )
+    if not entry:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_path = resolve_history_session_path(project_dir, entry, session_id)
+    if not session_path:
+        raise HTTPException(status_code=404, detail="Session not found")
+    messages = load_session_messages(session_path, MAX_HISTORY_MESSAGES)
+    title = entry.get("firstPrompt") if isinstance(entry.get("firstPrompt"), str) else ""
+    if not title and messages:
+        title = messages[0]["content"].splitlines()[0]
+    created = entry.get("created") if isinstance(entry.get("created"), str) else None
+    modified = entry.get("modified") if isinstance(entry.get("modified"), str) else None
+    if not created:
+        created = iso_from_millis(entry.get("fileMtime"))
+    if not modified and messages:
+        modified = messages[-1].get("timestamp")
+    mode = request.mode if request.mode in {"terminal", "stream"} else "stream"
+    session = manager.resume(
+        session_id=session_id,
+        title=title.strip() or None,
+        workdir=str(resolved),
+        permission_mode=request.permission_mode,
+        mode=mode,
+        messages=messages if mode == "stream" else None,
+        created_at=created,
+        last_updated=modified,
     )
     return session.to_detail()
 
@@ -893,6 +1208,15 @@ async def stop_session(session_id: str) -> dict[str, str]:
         raise HTTPException(status_code=404, detail="Session not found")
     session.stop()
     return {"status": "stopping"}
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str) -> dict[str, str]:
+    manager: SessionManager = app.state.manager
+    session = manager.delete(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"status": "deleted"}
 
 
 @app.get("/api/fs/list")

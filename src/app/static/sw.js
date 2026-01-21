@@ -1,9 +1,9 @@
-const CACHE_NAME = "claudemail-v12";
+const CACHE_NAME = "claudemail-v16";
 const ASSETS = [
   "/",
   "/static/index.html",
-  "/static/app.css?v=20250119-1",
-  "/static/app.js?v=20250119-1",
+  "/static/app.css?v=20250119-6",
+  "/static/app.js?v=20250119-6",
   "/static/vendor/xterm/xterm.css",
   "/static/vendor/xterm/xterm.js",
   "/static/vendor/xterm/addon-fit.js",

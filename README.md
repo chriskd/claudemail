@@ -2,6 +2,10 @@
 
 iOS Mail inspired web UI that wraps a Claude Code CLI session behind a mailbox interface.
 
+## Demo
+
+<video src="assets/stealth-claude-demo.mp4" controls muted playsinline></video>
+
 > Note: This is a quick PoC and a gag. It may contain security issues and should not be exposed
 > to the public internet. Prefer local LAN or something like Tailscale, and set a token if you
 > need remote access.
