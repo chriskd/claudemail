@@ -1,9 +1,7 @@
-const CACHE_NAME = "claudemail-v16";
+const CACHE_NAME = "claudemail-v29";
 const ASSETS = [
-  "/",
-  "/static/index.html",
-  "/static/app.css?v=20250119-6",
-  "/static/app.js?v=20250119-6",
+  "/static/app.css?v=20260122-12",
+  "/static/app.js?v=20260122-12",
   "/static/vendor/xterm/xterm.css",
   "/static/vendor/xterm/xterm.js",
   "/static/vendor/xterm/addon-fit.js",
@@ -42,7 +40,15 @@ self.addEventListener("fetch", (event) => {
   const isShell = url.pathname === "/" || url.pathname === "/index.html";
   const isStatic = url.pathname.startsWith("/static/");
 
-  if (isShell || isStatic) {
+  if (isShell) {
+    event.respondWith(
+      fetch(event.request, { cache: "no-store" })
+        .catch(() => caches.match(event.request).then((cached) => cached || Response.error()))
+    );
+    return;
+  }
+
+  if (isStatic) {
     event.respondWith(
       fetch(event.request)
         .then((response) => {

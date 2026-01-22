@@ -37,7 +37,7 @@ def safe_resolve(path: Path) -> Path:
 
 
 def get_workdir_root() -> Path:
-    raw = os.getenv("CLAUDE_WORKDIR_ROOT", "/srv/fast/code")
+    raw = os.getenv("CLAUDE_WORKDIR_ROOT", "/")
     return safe_resolve(Path(raw))
 
 
@@ -377,7 +377,7 @@ def load_session_messages(
 
 
 def get_api_token() -> Optional[str]:
-    raw = os.getenv("CLAUDEMAIL_API_TOKEN")
+    raw = os.getenv("CLAUDEMAIL_AUTH_KEY")
     if not raw:
         return None
     token = raw.strip()
@@ -1315,12 +1315,15 @@ async def shutdown() -> None:
 
 @app.get("/")
 async def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    response = FileResponse(STATIC_DIR / "index.html")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/sw.js")
 async def service_worker() -> FileResponse:
     response = FileResponse(STATIC_DIR / "sw.js")
+    response.headers["Cache-Control"] = "no-cache"
     response.headers["Service-Worker-Allowed"] = "/"
     return response
 

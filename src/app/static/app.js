@@ -1,5 +1,6 @@
 const sessionList = document.getElementById("sessionList");
 const messageThread = document.getElementById("messageThread");
+const messageThreadContent = document.getElementById("messageThreadContent");
 const messageTitle = document.getElementById("messageTitle");
 const messageSubtitle = document.getElementById("messageSubtitle");
 const messageSubject = document.getElementById("messageSubject");
@@ -17,6 +18,7 @@ const statusPill = document.getElementById("statusPill");
 const unreadCount = document.getElementById("unreadCount");
 const filterButton = document.getElementById("filterButton");
 const filterIndicator = document.getElementById("filterIndicator");
+const footerMeta = document.querySelector(".footer-meta");
 const searchInput = document.getElementById("searchInput");
 const listEmpty = document.getElementById("listEmpty");
 const listEmptyTitle = listEmpty?.querySelector(".empty-title");
@@ -66,12 +68,13 @@ const folderPickerStatus = document.getElementById("folderPickerStatus");
 const folderPickerUse = document.getElementById("folderPickerUse");
 const folderPickerNew = document.getElementById("folderPickerNew");
 const categoryButtons = Array.from(document.querySelectorAll(".icon-chip"));
+const rootStyle = document.documentElement.style;
 
 const SETTINGS_KEY = "claudemail.settings";
 const UI_KEY = "claudemail.ui";
 
 const defaultSettings = {
-  terminalMode: true,
+  terminalMode: false,
   permissionMode: "acceptEdits",
   workdir: "",
   prompt: "",
@@ -180,6 +183,32 @@ const terminalState = {
   pendingInputs: [],
 };
 
+let viewportRaf = null;
+
+function updateViewportMetrics() {
+  const viewport = window.visualViewport;
+  const height = viewport?.height ?? window.innerHeight;
+  const offsetTop = viewport?.offsetTop ?? 0;
+  const keyboardGap = Math.max(0, window.innerHeight - height - offsetTop);
+  if (Number.isFinite(height)) {
+    rootStyle.setProperty("--viewport-height", `${Math.round(height)}px`);
+  }
+  const effectiveOffset = keyboardGap > 0 ? 0 : offsetTop;
+  if (Number.isFinite(effectiveOffset)) {
+    rootStyle.setProperty("--viewport-offset", `${Math.round(effectiveOffset)}px`);
+  }
+  rootStyle.setProperty("--keyboard-gap", `${Math.round(keyboardGap)}px`);
+  document.body.classList.toggle("keyboard-open", keyboardGap > 100);
+}
+
+function scheduleViewportUpdate() {
+  if (viewportRaf) return;
+  viewportRaf = window.requestAnimationFrame(() => {
+    viewportRaf = null;
+    updateViewportMetrics();
+  });
+}
+
 function setStatus(text, offline = false) {
   if (!statusPill) return;
   const status = (text || "").toLowerCase();
@@ -199,7 +228,7 @@ function sanitizeSettings(raw) {
     rawTheme === "dark" || rawTheme === "light" || rawTheme === "oled" ? rawTheme : "system";
   const rawInitial = typeof raw?.userInitial === "string" ? raw.userInitial.trim() : "";
   return {
-    terminalMode: raw?.terminalMode !== false,
+    terminalMode: raw?.terminalMode === true,
     permissionMode: typeof raw?.permissionMode === "string" ? raw.permissionMode : "",
     workdir: typeof raw?.workdir === "string" ? raw.workdir : "",
     prompt: typeof raw?.prompt === "string" ? raw.prompt : "",
@@ -272,6 +301,11 @@ function applySettingsState(next) {
       hideMessagePane();
     }
     state.sessions = state.sessions.filter((session) => !session.is_history);
+    if (!normalizeWorkdir(state.settings.workdir)) {
+      state.sessions = [];
+      renderSessionList();
+      return state.settings;
+    }
     renderSessionList();
     fetchSessions();
     fetchHistorySessions(state.settings.workdir);
@@ -330,6 +364,7 @@ function applySettingsToForm(settings) {
 function showMessagePane() {
   messagePane.classList.add("open");
   messagePane.setAttribute("aria-hidden", "false");
+  scheduleViewportUpdate();
 }
 
 function hideMessagePane() {
@@ -502,11 +537,8 @@ function openFolderPicker() {
   folderPicker.setAttribute("aria-hidden", "false");
   document.body.classList.add("folder-picker-open");
   const initialPath = workdirInput.value.trim();
-  loadFolderPicker(initialPath || null).then((ok) => {
-    if (!ok && initialPath) {
-      loadFolderPicker(null);
-    }
-  });
+  const targetPath = initialPath || folderPickerState.path || null;
+  loadFolderPicker(targetPath);
 }
 
 function closeFolderPicker() {
@@ -686,7 +718,7 @@ function normalizeWorkdir(value) {
 
 function matchesWorkdir(session, workdir) {
   const scoped = normalizeWorkdir(workdir);
-  if (!scoped) return true;
+  if (!scoped) return false;
   const sessionWorkdir = normalizeWorkdir(session?.workdir);
   if (!sessionWorkdir) return false;
   return sessionWorkdir === scoped;
@@ -897,11 +929,11 @@ function updateUnreadCount() {
 
 function clearThread() {
   state.messageMap.clear();
-  messageThread.innerHTML = "";
+  messageThreadContent.innerHTML = "";
   if (terminalCard) {
-    messageThread.appendChild(terminalCard);
+    messageThreadContent.appendChild(terminalCard);
   }
-  messageThread.appendChild(emptyState);
+  messageThreadContent.appendChild(emptyState);
 }
 
 function updateEmptyState(hasMessages) {
@@ -911,10 +943,13 @@ function updateEmptyState(hasMessages) {
 
 function updateListEmptyState(count) {
   if (!listEmpty) return;
+  const hasWorkdir = Boolean(normalizeWorkdir(state.settings.workdir));
   const hasFilter = state.filter.trim().length > 0;
   const hasUnreadFilter = state.filterUnread;
   if (listEmptyTitle) {
-    if (hasFilter) {
+    if (!hasWorkdir) {
+      listEmptyTitle.textContent = "Set a Working Directory";
+    } else if (hasFilter) {
       listEmptyTitle.textContent = "No Results";
     } else if (hasUnreadFilter) {
       listEmptyTitle.textContent = "No Unread";
@@ -923,7 +958,9 @@ function updateListEmptyState(count) {
     }
   }
   if (listEmptyCopy) {
-    if (hasFilter) {
+    if (!hasWorkdir) {
+      listEmptyCopy.textContent = "Choose a folder in Settings to view sessions.";
+    } else if (hasFilter) {
       listEmptyCopy.textContent = "Try a different search.";
     } else if (hasUnreadFilter) {
       listEmptyCopy.textContent = "You're all caught up.";
@@ -931,7 +968,7 @@ function updateListEmptyState(count) {
       listEmptyCopy.textContent = "You're all caught up.";
     }
   }
-  const visible = count === 0;
+  const visible = !hasWorkdir || count === 0;
   listEmpty.classList.toggle("visible", visible);
   listEmpty.setAttribute("aria-hidden", visible ? "false" : "true");
 }
@@ -943,6 +980,9 @@ function updateFilterIndicator() {
   filterIndicator.setAttribute("aria-hidden", active ? "false" : "true");
   if (filterButton) {
     filterButton.classList.toggle("active", active);
+  }
+  if (footerMeta) {
+    footerMeta.classList.toggle("visible", active);
   }
 }
 
@@ -1036,7 +1076,7 @@ function upsertMessage(message) {
   if (!element) {
     element = buildMessageElement(message);
     state.messageMap.set(message.id, element);
-    messageThread.appendChild(element);
+    messageThreadContent.appendChild(element);
   } else {
     const body = element.querySelector(".thread-body");
     const time = element.querySelector(".thread-time");
@@ -1079,6 +1119,9 @@ function sortSessions(sessions) {
 }
 
 function getFilteredSessions() {
+  if (!normalizeWorkdir(state.settings.workdir)) {
+    return [];
+  }
   const filter = state.filter.toLowerCase();
   const scoped = state.sessions.filter((session) =>
     matchesWorkdir(session, state.settings.workdir)
@@ -1281,6 +1324,11 @@ function renderSessionList() {
 }
 
 async function fetchSessions() {
+  if (!normalizeWorkdir(state.settings.workdir)) {
+    state.sessions = [];
+    renderSessionList();
+    return;
+  }
   const response = await apiFetch("/api/sessions");
   if (!response.ok) return;
   const sessions = await response.json();
@@ -1326,6 +1374,9 @@ function mergeHistorySessions(historySessions, workdir) {
 async function fetchHistorySessions(workdirOverride) {
   const candidate = workdirOverride ?? state.settings.workdir;
   const workdir = (candidate || "").trim();
+  if (!workdir) {
+    return;
+  }
   const url = new URL("/api/history", window.location.origin);
   if (workdir) {
     url.searchParams.set("workdir", workdir);
@@ -1592,6 +1643,7 @@ async function sendInput(content) {
   }
   composerInput.value = "";
   composerInput.style.height = "";
+  scheduleComposerMetricsUpdate();
 }
 
 async function deleteSessions(sessionIds, { renderAfter = true } = {}) {
@@ -1638,6 +1690,14 @@ composerInput.addEventListener("keydown", (event) => {
 composerInput.addEventListener("input", () => {
   composerInput.style.height = "";
   composerInput.style.height = `${composerInput.scrollHeight}px`;
+});
+
+composerInput.addEventListener("focus", () => {
+  scheduleViewportUpdate();
+});
+
+composerInput.addEventListener("blur", () => {
+  scheduleViewportUpdate();
 });
 
 newSessionButton.addEventListener("click", () => createSession());
@@ -1752,11 +1812,28 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+document.addEventListener("focusin", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  if (!target.matches("input, textarea, select")) return;
+  if (settingsPanel.contains(target) || folderPicker.contains(target)) {
+    target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+  }
+});
+
 window.addEventListener("resize", () => {
   if (isTerminalMode()) {
     scheduleTerminalFit();
   }
+  scheduleViewportUpdate();
 });
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", scheduleViewportUpdate);
+  window.visualViewport.addEventListener("scroll", scheduleViewportUpdate);
+}
+
+scheduleViewportUpdate();
 
 state.ui = loadUiSettings();
 applyUiState(state.ui);
@@ -1764,8 +1841,12 @@ state.settings = loadSettings();
 applyTheme(state.settings.theme);
 setStatus("idle");
 applySettingsToForm(state.settings);
-fetchSessions();
-fetchHistorySessions(state.settings.workdir);
+if (normalizeWorkdir(state.settings.workdir)) {
+  fetchSessions();
+  fetchHistorySessions(state.settings.workdir);
+} else {
+  renderSessionList();
+}
 initCategoryChips();
 
 themeMedia.addEventListener("change", () => {
@@ -1776,6 +1857,9 @@ themeMedia.addEventListener("change", () => {
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((registration) => registration.update())
+      .catch(() => undefined);
   });
 }
