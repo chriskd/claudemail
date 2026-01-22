@@ -17,7 +17,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, TextIO
+from typing import IO, Optional, cast
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
@@ -106,8 +106,11 @@ def extract_message_text(message: dict[str, object]) -> str:
         for block in content:
             if not isinstance(block, dict):
                 continue
-            if block.get("type") == "text" and isinstance(block.get("text"), str):
-                parts.append(block["text"])
+            block_map = cast(dict[str, object], block)
+            block_type = block_map.get("type")
+            text = block_map.get("text")
+            if block_type == "text" and isinstance(text, str):
+                parts.append(text)
         return "".join(parts)
     return ""
 
@@ -133,6 +136,12 @@ def should_skip_history_payload(payload: dict[str, object], text: str) -> bool:
     if is_command_meta_text(text):
         return True
     return False
+
+
+def as_dict(value: object) -> Optional[dict[str, object]]:
+    if isinstance(value, dict):
+        return cast(dict[str, object], value)
+    return None
 
 
 def resolve_history_session_path(
@@ -217,7 +226,9 @@ def read_session_metadata(session_path: Path) -> Optional[dict[str, object]]:
                         candidate = payload.get("cwd")
                         if isinstance(candidate, str) and candidate.strip():
                             project_path = candidate.strip()
-                if is_sidechain is None and isinstance(payload.get("isSidechain"), bool):
+                if is_sidechain is None and isinstance(
+                    payload.get("isSidechain"), bool
+                ):
                     is_sidechain = payload.get("isSidechain")
                 if slug is None:
                     candidate = payload.get("slug")
@@ -316,7 +327,9 @@ def select_history_title(entry: dict[str, object]) -> str:
     return ""
 
 
-def load_session_messages(session_path: Path, max_messages: int) -> list[dict[str, str]]:
+def load_session_messages(
+    session_path: Path, max_messages: int
+) -> list[dict[str, str]]:
     messages: deque[dict[str, str]] = deque(maxlen=max_messages)
     try:
         with session_path.open("r", encoding="utf-8") as handle:
@@ -341,7 +354,11 @@ def load_session_messages(session_path: Path, max_messages: int) -> list[dict[st
                     continue
                 message_id = payload.get("uuid")
                 if not isinstance(message_id, str):
-                    message_id = message.get("id") if isinstance(message.get("id"), str) else str(uuid.uuid4())
+                    message_id = (
+                        message.get("id")
+                        if isinstance(message.get("id"), str)
+                        else str(uuid.uuid4())
+                    )
                 timestamp = payload.get("timestamp")
                 if not isinstance(timestamp, str):
                     timestamp = now_iso()
@@ -553,8 +570,8 @@ class Session:
     id: str
     title: str
     process: subprocess.Popen[str]
-    stdin: TextIO
-    stdout: TextIO
+    stdin: IO[str]
+    stdout: IO[str]
     loop: asyncio.AbstractEventLoop
     workdir: Optional[str] = None
     created_at: str = field(default_factory=now_iso)
@@ -628,7 +645,9 @@ class Session:
                 self.title = first_line[:48]
         return message
 
-    def _append_assistant_delta(self, content: str, timestamp: str, source_id: Optional[str]) -> Optional[dict[str, str]]:
+    def _append_assistant_delta(
+        self, content: str, timestamp: str, source_id: Optional[str]
+    ) -> Optional[dict[str, str]]:
         if not content:
             return None
         index = None
@@ -657,7 +676,9 @@ class Session:
         self.last_updated = timestamp
         return message
 
-    def _set_assistant_content(self, content: str, timestamp: str, source_id: Optional[str]) -> Optional[dict[str, str]]:
+    def _set_assistant_content(
+        self, content: str, timestamp: str, source_id: Optional[str]
+    ) -> Optional[dict[str, str]]:
         if content is None:
             return None
         index = None
@@ -689,7 +710,9 @@ class Session:
         self.open_assistant_index = None
         self.current_stream_message_id = None
 
-    def _upsert_tool_message(self, tool_id: str, content: str, timestamp: str) -> dict[str, str]:
+    def _upsert_tool_message(
+        self, tool_id: str, content: str, timestamp: str
+    ) -> dict[str, str]:
         index = self.tool_index_by_id.get(tool_id)
         if index is None:
             message = {
@@ -708,7 +731,9 @@ class Session:
         self.last_updated = timestamp
         return message
 
-    def _append_tool_result(self, tool_id: Optional[str], content: str, timestamp: str) -> dict[str, str]:
+    def _append_tool_result(
+        self, tool_id: Optional[str], content: str, timestamp: str
+    ) -> dict[str, str]:
         message_id = f"{tool_id}-result" if tool_id else str(uuid.uuid4())
         message = {
             "id": message_id,
@@ -735,7 +760,9 @@ class Session:
             return header
         return f"{header}\nInput:\n{body}"
 
-    def _format_tool_result(self, tool_name: Optional[str], content: str, is_error: bool) -> str:
+    def _format_tool_result(
+        self, tool_name: Optional[str], content: str, is_error: bool
+    ) -> str:
         header = f"Tool Result: {tool_name}" if tool_name else "Tool Result"
         if is_error:
             header += " (error)"
@@ -751,8 +778,11 @@ class Session:
             for block in content:
                 if not isinstance(block, dict):
                     continue
-                if block.get("type") == "text" and isinstance(block.get("text"), str):
-                    parts.append(block["text"])
+                block_map = cast(dict[str, object], block)
+                block_type = block_map.get("type")
+                text = block_map.get("text")
+                if block_type == "text" and isinstance(text, str):
+                    parts.append(text)
             return "".join(parts)
         return ""
 
@@ -763,21 +793,25 @@ class Session:
         timestamp = now_iso()
 
         if payload_type == "stream_event":
-            event = payload.get("event")
-            if isinstance(event, dict):
+            event = as_dict(payload.get("event"))
+            if event:
                 event_type = event.get("type")
                 if event_type == "message_start":
-                    message = event.get("message")
-                    if isinstance(message, dict):
-                        self.current_stream_message_id = message.get("id")
+                    message = as_dict(event.get("message"))
+                    if message:
+                        message_id = message.get("id")
+                        if isinstance(message_id, str):
+                            self.current_stream_message_id = message_id
                 elif event_type == "content_block_start":
-                    block = event.get("content_block")
-                    if isinstance(block, dict):
+                    block = as_dict(event.get("content_block"))
+                    if block:
                         block_type = block.get("type")
                         if block_type == "text":
                             text = block.get("text")
                             if isinstance(text, str) and text:
-                                message = self._append_assistant_delta(text, timestamp, self.current_stream_message_id)
+                                message = self._append_assistant_delta(
+                                    text, timestamp, self.current_stream_message_id
+                                )
                                 if message:
                                     await self._broadcast({"type": "output", **message})
                         elif block_type == "tool_use":
@@ -789,36 +823,56 @@ class Session:
                             if isinstance(tool_id, str):
                                 self.tool_name_by_id[tool_id] = str(tool_name)
                                 input_payload = block.get("input")
-                                if isinstance(input_payload, dict) and not input_payload:
+                                if (
+                                    isinstance(input_payload, dict)
+                                    and not input_payload
+                                ):
                                     input_payload = None
-                                content = self._format_tool_input(str(tool_name), input_payload)
-                                message = self._upsert_tool_message(tool_id, content, timestamp)
+                                content = self._format_tool_input(
+                                    str(tool_name), input_payload
+                                )
+                                message = self._upsert_tool_message(
+                                    tool_id, content, timestamp
+                                )
                                 await self._broadcast({"type": "output", **message})
                 elif event_type == "content_block_delta":
-                    delta = event.get("delta")
-                    if isinstance(delta, dict):
+                    delta = as_dict(event.get("delta"))
+                    if delta:
                         delta_type = delta.get("type")
                         if delta_type == "text_delta":
                             text = delta.get("text")
                             if isinstance(text, str) and text:
-                                message = self._append_assistant_delta(text, timestamp, self.current_stream_message_id)
+                                message = self._append_assistant_delta(
+                                    text, timestamp, self.current_stream_message_id
+                                )
                                 if message:
                                     await self._broadcast({"type": "output", **message})
                         elif delta_type == "input_json_delta":
                             index = event.get("index")
-                            tool_id = self.tool_id_by_index.get(index) if isinstance(index, int) else None
+                            tool_id = (
+                                self.tool_id_by_index.get(index)
+                                if isinstance(index, int)
+                                else None
+                            )
                             if tool_id:
                                 chunk = delta.get("partial_json")
                                 if isinstance(chunk, str):
-                                    buffer = self.tool_input_buffer_by_id.get(tool_id, "") + chunk
+                                    buffer = (
+                                        self.tool_input_buffer_by_id.get(tool_id, "")
+                                        + chunk
+                                    )
                                     self.tool_input_buffer_by_id[tool_id] = buffer
-                                    tool_name = self.tool_name_by_id.get(tool_id, "Tool")
+                                    tool_name = self.tool_name_by_id.get(
+                                        tool_id, "Tool"
+                                    )
                                     try:
                                         parsed = json.loads(buffer)
                                     except json.JSONDecodeError:
                                         parsed = buffer
                                     content = self._format_tool_input(tool_name, parsed)
-                                    message = self._upsert_tool_message(tool_id, content, timestamp)
+                                    message = self._upsert_tool_message(
+                                        tool_id, content, timestamp
+                                    )
                                     await self._broadcast({"type": "output", **message})
                 elif event_type == "content_block_stop":
                     index = event.get("index")
@@ -829,8 +883,8 @@ class Session:
             return
 
         if payload_type == "assistant":
-            message_payload = payload.get("message")
-            if isinstance(message_payload, dict):
+            message_payload = as_dict(payload.get("message"))
+            if message_payload:
                 content = self._extract_text(message_payload.get("content"))
                 message_id = message_payload.get("id")
                 if content:
@@ -845,20 +899,28 @@ class Session:
             return
 
         if payload_type == "user":
-            message_payload = payload.get("message")
-            if isinstance(message_payload, dict):
+            message_payload = as_dict(payload.get("message"))
+            if message_payload:
                 blocks = message_payload.get("content")
                 if isinstance(blocks, list):
                     for block in blocks:
-                        if not isinstance(block, dict):
+                        block_map = as_dict(block)
+                        if not block_map:
                             continue
-                        if block.get("type") != "tool_result":
+                        if block_map.get("type") != "tool_result":
                             continue
-                        tool_id = block.get("tool_use_id")
-                        tool_name = self.tool_name_by_id.get(tool_id) if isinstance(tool_id, str) else None
-                        content = block.get("content") if isinstance(block.get("content"), str) else ""
-                        tool_result = payload.get("tool_use_result")
-                        if not content and isinstance(tool_result, dict):
+                        tool_id = block_map.get("tool_use_id")
+                        tool_name = (
+                            self.tool_name_by_id.get(tool_id)
+                            if isinstance(tool_id, str)
+                            else None
+                        )
+                        content_value = block_map.get("content")
+                        content: str = (
+                            content_value if isinstance(content_value, str) else ""
+                        )
+                        tool_result = as_dict(payload.get("tool_use_result"))
+                        if not content and tool_result:
                             parts: list[str] = []
                             stdout = tool_result.get("stdout")
                             stderr = tool_result.get("stderr")
@@ -870,8 +932,14 @@ class Session:
                             if interrupted:
                                 parts.append("[interrupted]")
                             content = "\\n\\n".join(parts)
-                        formatted = self._format_tool_result(tool_name, content, bool(block.get("is_error")))
-                        message = self._append_tool_result(tool_id if isinstance(tool_id, str) else None, formatted, timestamp)
+                        formatted = self._format_tool_result(
+                            tool_name, content, bool(block_map.get("is_error"))
+                        )
+                        message = self._append_tool_result(
+                            tool_id if isinstance(tool_id, str) else None,
+                            formatted,
+                            timestamp,
+                        )
                         await self._broadcast({"type": "output", **message})
                         if isinstance(tool_id, str):
                             self.tool_input_buffer_by_id.pop(tool_id, None)
@@ -1068,7 +1136,7 @@ class TerminalSession:
 class SessionManager:
     def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
         self.loop = loop
-        self.sessions: dict[str, object] = {}
+        self.sessions: dict[str, Session | TerminalSession] = {}
         self.counter = 0
 
     def create(
@@ -1078,13 +1146,15 @@ class SessionManager:
         workdir: Optional[str],
         permission_mode: Optional[str],
         mode: str,
-    ) -> Session:
+    ) -> Session | TerminalSession:
         self.counter += 1
         session_id = str(uuid.uuid4())
         fallback_title = f"Session {self.counter:02d}"
         resolved_workdir = str(resolve_workdir(workdir))
         if mode == "terminal":
-            process, master_fd = spawn_terminal_process(resolved_workdir, session_id, permission_mode)
+            process, master_fd = spawn_terminal_process(
+                resolved_workdir, session_id, permission_mode
+            )
             session = TerminalSession(
                 id=session_id,
                 title=title or fallback_title,
@@ -1098,7 +1168,9 @@ class SessionManager:
             session.start_reader()
             if prompt:
                 if not title:
-                    first_line = prompt.strip().splitlines()[0] if prompt.strip() else ""
+                    first_line = (
+                        prompt.strip().splitlines()[0] if prompt.strip() else ""
+                    )
                     if first_line:
                         session.title = first_line[:48]
                 self.loop.call_soon_threadsafe(
@@ -1121,7 +1193,9 @@ class SessionManager:
         self.sessions[session_id] = session
         session.start_reader()
         if prompt:
-            self.loop.call_soon_threadsafe(lambda: asyncio.create_task(session.handle_input(prompt)))
+            self.loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(session.handle_input(prompt))
+            )
         return session
 
     def resume(
@@ -1134,7 +1208,7 @@ class SessionManager:
         messages: Optional[list[dict[str, str]]] = None,
         created_at: Optional[str] = None,
         last_updated: Optional[str] = None,
-    ) -> object:
+    ) -> Session | TerminalSession:
         existing = self.sessions.get(session_id)
         if existing:
             return existing
@@ -1161,7 +1235,9 @@ class SessionManager:
             self.sessions[session_id] = session
             session.start_reader()
             return session
-        process = spawn_process(resolved_workdir, session_id, permission_mode, resume_id=session_id)
+        process = spawn_process(
+            resolved_workdir, session_id, permission_mode, resume_id=session_id
+        )
         if process.stdin is None or process.stdout is None:
             raise RuntimeError("Failed to open Claude Code streams.")
         session = Session(
@@ -1181,17 +1257,19 @@ class SessionManager:
         session.start_reader()
         return session
 
-    def get(self, session_id: str) -> Optional[object]:
+    def get(self, session_id: str) -> Optional[Session | TerminalSession]:
         return self.sessions.get(session_id)
 
-    def list(self) -> list[object]:
-        return sorted(self.sessions.values(), key=lambda s: s.last_updated, reverse=True)
+    def list_sessions(self) -> list[Session | TerminalSession]:
+        return sorted(
+            self.sessions.values(), key=lambda s: s.last_updated, reverse=True
+        )
 
     def stop_all(self) -> None:
         for session in self.sessions.values():
             session.stop()
 
-    def delete(self, session_id: str) -> Optional[object]:
+    def delete(self, session_id: str) -> Optional[Session | TerminalSession]:
         session = self.sessions.pop(session_id, None)
         if not session:
             return None
@@ -1213,9 +1291,13 @@ async def api_token_guard(request: Request, call_next):
     if expected and request.url.path.startswith("/api/"):
         token = extract_bearer(request.headers.get("authorization"))
         if not token:
-            return JSONResponse(status_code=401, content={"detail": "Missing API token."})
+            return JSONResponse(
+                status_code=401, content={"detail": "Missing API token."}
+            )
         if not is_token_valid(token, expected):
-            return JSONResponse(status_code=403, content={"detail": "Invalid API token."})
+            return JSONResponse(
+                status_code=403, content={"detail": "Invalid API token."}
+            )
     return await call_next(request)
 
 
@@ -1258,13 +1340,16 @@ async def list_history(workdir: Optional[str] = None) -> list[dict[str, object]]
     if not entries:
         entries = build_history_entries_from_jsonl(project_dir)
     project_path = str(resolved)
-    history: list[dict[str, str]] = []
+    history: list[dict[str, object]] = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
         if entry.get("isSidechain") is True:
             continue
-        if isinstance(entry.get("projectPath"), str) and entry.get("projectPath") != project_path:
+        if (
+            isinstance(entry.get("projectPath"), str)
+            and entry.get("projectPath") != project_path
+        ):
             continue
         session_id = entry.get("sessionId")
         if not isinstance(session_id, str):
@@ -1276,8 +1361,12 @@ async def list_history(workdir: Optional[str] = None) -> list[dict[str, object]]
         preview, preview_timestamp = read_session_preview(session_path)
         first_user_message = read_session_first_user_message(session_path)
         preview_line = preview.strip().splitlines()[0][:140] if preview else ""
-        created = entry.get("created") if isinstance(entry.get("created"), str) else None
-        modified = entry.get("modified") if isinstance(entry.get("modified"), str) else None
+        created = (
+            entry.get("created") if isinstance(entry.get("created"), str) else None
+        )
+        modified = (
+            entry.get("modified") if isinstance(entry.get("modified"), str) else None
+        )
         if not created:
             created = iso_from_millis(entry.get("fileMtime"))
         last_updated = preview_timestamp or modified or created or now_iso()
@@ -1303,7 +1392,7 @@ async def list_history(workdir: Optional[str] = None) -> list[dict[str, object]]
 @app.get("/api/sessions")
 async def list_sessions() -> list[dict[str, str]]:
     manager: SessionManager = app.state.manager
-    return [session.to_meta() for session in manager.list()]
+    return [session.to_meta() for session in manager.list_sessions()]
 
 
 @app.post("/api/sessions")
@@ -1335,7 +1424,11 @@ async def resume_session(request: ResumeSessionRequest) -> dict[str, object]:
     if not entries:
         entries = build_history_entries_from_jsonl(project_dir)
     entry = next(
-        (item for item in entries if isinstance(item, dict) and item.get("sessionId") == session_id),
+        (
+            item
+            for item in entries
+            if isinstance(item, dict) and item.get("sessionId") == session_id
+        ),
         None,
     )
     if not entry:
@@ -1461,7 +1554,9 @@ async def terminal_ws(websocket: WebSocket, session_id: str) -> None:
         return
     await websocket.accept()
     session.clients.add(websocket)
-    await websocket.send_json({"type": "status", "status": session.status, "timestamp": now_iso()})
+    await websocket.send_json(
+        {"type": "status", "status": session.status, "timestamp": now_iso()}
+    )
     try:
         while True:
             raw = await websocket.receive_text()
@@ -1494,7 +1589,9 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
         return
     await websocket.accept()
     session.clients.add(websocket)
-    await websocket.send_json({"type": "status", "status": session.status, "timestamp": now_iso()})
+    await websocket.send_json(
+        {"type": "status", "status": session.status, "timestamp": now_iso()}
+    )
     try:
         while True:
             raw = await websocket.receive_text()
