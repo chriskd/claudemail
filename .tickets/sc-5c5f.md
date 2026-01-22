@@ -16,3 +16,9 @@ assignee: chriskd
 
 - [ ] Pytest available via \n- [ ] Docs updated if needed
 
+
+## Notes
+
+**2026-01-22T22:30:15Z**
+
+Quality gate:  failed (pytest missing).
