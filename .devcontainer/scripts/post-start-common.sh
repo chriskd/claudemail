@@ -14,12 +14,11 @@ log_feature() { printf '[voidlabs-devtools:%s] %s\n' "$1" "$2"; }
 
 # --- Configuration ---
 # Defaults (all features enabled)
-VOIDLABS_TICKET="${VOIDLABS_TICKET:-${VOIDLABS_BEADS:-true}}"
+VOIDLABS_TICKET="${VOIDLABS_TICKET:-true}"
 VOIDLABS_VLMAIL="${VOIDLABS_VLMAIL:-true}"
 VOIDLABS_MEMEX="${VOIDLABS_MEMEX:-true}"
 VOIDLABS_FACTORY="${VOIDLABS_FACTORY:-true}"
 VOIDLABS_CHEZMOI="${VOIDLABS_CHEZMOI:-true}"
-VOIDLABS_WORKTRUNK="${VOIDLABS_WORKTRUNK:-true}"
 
 load_config() {
     local config_file="$workspace/.devcontainer/voidlabs.conf"
@@ -329,74 +328,6 @@ setup_chezmoi() {
     log_feature "chezmoi" "Dotfiles applied"
 }
 
-# --- Worktrunk Git Worktree Manager ---
-setup_worktrunk() {
-    # Skip if wt not installed
-    if ! command -v wt &>/dev/null; then
-        log_feature "worktrunk" "wt not installed, skipping"
-        return 0
-    fi
-
-    # Install shell integration (enables directory switching)
-    log_feature "worktrunk" "Installing shell integration..."
-    wt config shell install 2>/dev/null || true
-
-    # Set Anthropic API key for llm CLI (from Phase secrets)
-    if command -v llm &>/dev/null && [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-        log_feature "worktrunk" "Setting Anthropic API key for llm..."
-        echo "$ANTHROPIC_API_KEY" | llm keys set anthropic 2>/dev/null || true
-    fi
-
-    # Create worktrunk user config if not present (use bundled config)
-    local WT_CONFIG_DIR="$HOME/.config/worktrunk"
-    local WT_CONFIG="$WT_CONFIG_DIR/config.toml"
-    local BUNDLED_CONFIG="$workspace/.devcontainer/configs/worktrunk-user-config.toml"
-    if [[ ! -f "$WT_CONFIG" ]]; then
-        mkdir -p "$WT_CONFIG_DIR"
-        if [[ -f "$BUNDLED_CONFIG" ]]; then
-            cp "$BUNDLED_CONFIG" "$WT_CONFIG"
-            log_feature "worktrunk" "Installed config from bundled template to $WT_CONFIG"
-        else
-            log_feature "worktrunk" "No bundled config found at $BUNDLED_CONFIG, skipping user config"
-        fi
-    fi
-
-    # Add wsc alias for quick worktree + Claude creation
-    local ALIAS_MARKER="# >>> worktrunk-alias >>>"
-    local ALIAS_BLOCK="
-$ALIAS_MARKER
-# Worktrunk alias: create worktree and launch Claude Code
-alias wsc='wt switch --create --execute=claude'
-# <<< worktrunk-alias <<<"
-
-    # Add to zshrc if not present
-    if [[ -f "$HOME/.zshrc" ]] && ! grep -q "$ALIAS_MARKER" "$HOME/.zshrc" 2>/dev/null; then
-        echo "$ALIAS_BLOCK" >> "$HOME/.zshrc"
-        log_feature "worktrunk" "Added wsc alias to ~/.zshrc"
-    fi
-
-    # Add to bashrc if not present
-    if [[ -f "$HOME/.bashrc" ]] && ! grep -q "$ALIAS_MARKER" "$HOME/.bashrc" 2>/dev/null; then
-        echo "$ALIAS_BLOCK" >> "$HOME/.bashrc"
-        log_feature "worktrunk" "Added wsc alias to ~/.bashrc"
-    fi
-
-    # Install Claude Code plugin for status tracking (if claude is available)
-    # Check installed_plugins.json directly since .claude is shared across containers
-    local PLUGINS_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"
-    if command -v claude &>/dev/null; then
-        if [[ ! -f "$PLUGINS_FILE" ]] || ! grep -q '"worktrunk@worktrunk"' "$PLUGINS_FILE" 2>/dev/null; then
-            log_feature "worktrunk" "Installing Claude Code plugin for status tracking..."
-            claude plugin marketplace add max-sixty/worktrunk 2>/dev/null || true
-            claude plugin install worktrunk@worktrunk 2>/dev/null || true
-        else
-            log_feature "worktrunk" "Claude Code plugin already installed"
-        fi
-    fi
-
-    log_feature "worktrunk" "Setup complete"
-}
-
 # --- pbs Environment ---
 setup_pbs_env() {
     local DEVTOOLS_DIR="/srv/fast/code/voidlabs-devtools"
@@ -459,7 +390,6 @@ main() {
     [[ "$VOIDLABS_MEMEX" == "true" ]] && setup_memex
     [[ "$VOIDLABS_FACTORY" == "true" ]] && setup_factory
     [[ "$VOIDLABS_CHEZMOI" == "true" ]] && setup_chezmoi
-    [[ "$VOIDLABS_WORKTRUNK" == "true" ]] && setup_worktrunk
 
     # pbs environment (for template sync)
     setup_pbs_env
