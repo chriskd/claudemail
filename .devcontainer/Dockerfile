@@ -1,6 +1,6 @@
 # stealth-claude Development Container
 # Uses prebuilt base image from local registry for fast startup
-# Base includes: Go, Node, Phase CLI, git, zsh, tmux, Homebrew (with fzf, neovim, uv, worktrunk)
+# Base includes: Go, Node, Phase CLI, git, zsh, tmux, and Homebrew tooling
 #
 # To rebuild the base image manually:
 #   cd /srv/fast/code/voidlabs-devtools
