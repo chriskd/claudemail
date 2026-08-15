@@ -4,12 +4,12 @@
 #
 # To rebuild the base image manually:
 #   cd /srv/fast/code/voidlabs-devtools
-#   docker build -t localhost:5000/devcontainer-base:latest -f devcontainers/base/Dockerfile .
-#   docker push localhost:5000/devcontainer-base:latest
+#   docker build -t registry.voidlabs.cc/devcontainer-base:latest -f devcontainers/base/Dockerfile .
+#   docker push registry.voidlabs.cc/devcontainer-base:latest
 #
 # Or trigger via GitHub Actions (push to main with Dockerfile changes)
 
-FROM localhost:5000/devcontainer-base:latest
+FROM registry.voidlabs.cc/devcontainer-base:latest
 
 # Add project-specific packages here if needed:
 # RUN apt-get update && apt-get install -y \
